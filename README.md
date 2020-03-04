@@ -7,18 +7,14 @@ Original code and data for using [BERMUDA](https://genomebiology.biomedcentral.c
 Using BERMUDA to define a latent space capturing tissue-specific variation in diffusion MRI parameters, corrected for inter-subject variation (cf. batch).
 
 ## Dependencies
-* Python 3.6.5
-* scikit-learn 0.19.1
-* pyTorch 0.4.0
-* imbalanced-learn 0.3.3
-* universal-divergence 0.2.0
+* Python 3.7.6
+* scikit-learn 0.22.1
+* pyTorch 1.4.0
+* rpy2 2.9.4
+* R libraries: simstudy, clusterGeneration, Matrix
 
 ## Files
-*main_pancreas.py*: An Example of combining two pancreas datasets\
-*main_pbmc.py*: An Example of combining PBMCs with pan T cells\
-*R/pre_processing.R*: Workflow of detecting clusters using Seurat and identifying similar clusters using MetaNeighbor\
-*R/gaussian.R*: Simulate data based on 2D Gaussian distributions\
-*R/splatter.R*: Simulate data using Splatter package
+*main_synthetic.py*: example using synthetic data\
 
 ## Cite
 Wang, T., Johnson, T.S., Shao, W. et al. BERMUDA: a novel deep transfer learning method for single-cell RNA sequencing batch correction reveals hidden high-resolution cellular subtypes. Genome Biol 20, 165 (2019) doi:10.1186/s13059-019-1764-6

@@ -37,6 +37,7 @@ lr_step = 200  # step decay of learning rates
 l2_decay = 5e-5
 gamma = 1  # regularization between reconstruction and transfer learning - changes with epoch
 log_interval = 1
+
 # parameter dictionary
 nn_paras = {'code_dim': code_dim, 'batch_size': batch_size, 'num_epochs': num_epochs,
             'base_lr': base_lr, 'lr_step': lr_step,
@@ -45,11 +46,11 @@ nn_paras = {'code_dim': code_dim, 'batch_size': batch_size, 'num_epochs': num_ep
 
 
 # data generation parameters
-number_of_subjects = 10
+number_of_subjects = 5
 number_of_tissues = 10
-number_of_voxels = 50
+number_of_voxels = 150
 number_of_features = 10
-set_noise = 0.25
+set_noise = 0.35
 
 pre_process_paras = {'scale': False,          # Z-score
                      'standardise': True}   # [0,1]
@@ -93,21 +94,23 @@ if __name__ == '__main__':
 
     # MODEL TRAINING ########################################################################
     # set seed for reproducibility
-    seed = 0
-    torch.manual_seed(seed) # set seed on CPU and GPU for reproducibility
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
+    #seed = 0
+    #torch.manual_seed(seed) # set seed on CPU and GPU for reproducibility
+    #random.seed(seed)
+    #np.random.seed(seed)
+    #torch.manual_seed(seed)
 
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    #torch.backends.cudnn.deterministic = True
+    #torch.backends.cudnn.benchmark = False
 
     nn_paras['num_inputs'] = np.shape(dataset_list[0]['data'])[1]
 
     # training
     model, loss_total_list, loss_reconstruct_list, loss_transfer_list = training(dataset_list, cluster_pairs, nn_paras)
+
     # plot training loss
     plot_loss(loss_total_list, loss_reconstruct_list, loss_transfer_list, outDir + '/model-loss.png')
+
     # training code
     code_list, recon_list = testing(model, dataset_list, nn_paras)
     train_code = (np.concatenate(code_list, axis=1).transpose())
@@ -137,8 +140,8 @@ if __name__ == '__main__':
 
     train_mse = mean_squared_error(x_train, train_recon)
     test_mse = mean_squared_error(x_test, test_recon)
-    print('{}, {0.3f}').format('train error:', train_mse)
-    print('{}, {0.3f}').format('test error:', test_mse)
+    print('train_error {:.3f}'.format(train_mse))
+    print('test_error {:.3f}'.format(test_mse))
 
     # align to latent space
     all_aligned =[]

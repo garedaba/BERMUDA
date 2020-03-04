@@ -14,7 +14,11 @@ Using BERMUDA to define a latent space capturing tissue-specific variation in di
 * R libraries: simstudy, clusterGeneration, Matrix
 
 ## Files
-*main_synthetic.py*: example using synthetic data\
+*main_synthetic.py*: example using synthetic data
+
+### todo
+* change data generation to vary number of voxels in each tissue
+
 
 ## Cite
 Wang, T., Johnson, T.S., Shao, W. et al. BERMUDA: a novel deep transfer learning method for single-cell RNA sequencing batch correction reveals hidden high-resolution cellular subtypes. Genome Biol 20, 165 (2019) doi:10.1186/s13059-019-1764-6

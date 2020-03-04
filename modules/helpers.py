@@ -94,7 +94,7 @@ def prepare_data(x, y):
     dataset_list = []
     for s in pd.unique(y['subjects']):
         dataset = {}
-        dataset['data'] = x.loc[y['subjects']==s]
+        dataset['data'] = x[y.subjects==s]
         dataset['tissue_labels'] = y.loc[y.subjects==s, 'tissue_by_subject'].values.astype(int)
         dataset['sample_labels'] = y.loc[y.subjects==s, 'subjects'].values.astype(int)
 

@@ -144,5 +144,5 @@ def plot_synthetic_data(meta, data, transform='pca', outdir='.'):
     
     plt.tight_layout()
     plt.savefig(outdir + '/' + transform + '-synthetic.png')
-    plt.show()
+    plt.close()
 

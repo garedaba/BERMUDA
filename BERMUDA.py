@@ -1,32 +1,35 @@
-import numpy as np
 import torch
 import torch.utils.data
 from torch.autograd import Variable
 import torch.nn.functional as F
-import ae as models
-from mmd import mix_rbf_mmd2
+
 import math
 import time
 
-# sigma for MMD
+import numpy as np
+
+import models.autoencoder as models
+from mmd import mix_rbf_mmd2
+
+# range of sigma for MMD loss calculation
 base = 1.0
 sigma_list = [1, 2, 4, 8, 16]
 sigma_list = [sigma / base for sigma in sigma_list]
 
-from imblearn.over_sampling import RandomOverSampler
-imblearn_seed = 0
+def safe_div(n, d):
+    return n / d if d else n
 
 def training(dataset_list, cluster_pairs, nn_paras):
     """ Training an autoencoder to remove batch effects
-    Args:
-        dataset_list: list of datasets for batch correction
-        cluster_pairs: pairs of similar clusters with weights
-        nn_paras: parameters for neural network training
-    Returns:
-        model: trained autoencoder
-        loss_total_list: list of total loss
-        loss_reconstruct_list: list of reconstruction loss
-        loss_transfer_list: list of transfer loss
+    dataset_list: list of datasets for batch correction
+    cluster_pairs: pairs of similar clusters with weights
+    nn_paras: parameters for neural network training
+    
+    returns:
+    model: trained autoencoder
+    loss_total_list: list of total loss
+    loss_reconstruct_list: list of reconstruction loss
+    loss_transfer_list: list of transfer loss
     """
     # load nn parameters
     batch_size = nn_paras['batch_size']
@@ -35,42 +38,43 @@ def training(dataset_list, cluster_pairs, nn_paras):
     code_dim = nn_paras['code_dim']
     cuda = nn_paras['cuda']
 
-    # training data for autoencoder, construct a DataLoader for each cluster
+    # create data loaders - one per tissue type
     cluster_loader_dict = {}
     for i in range(len(dataset_list)):
-        gene_exp = dataset_list[i]['gene_exp'].transpose()
-        cluster_labels = dataset_list[i]['cluster_labels']  # cluster labels do not overlap between datasets
+        data = dataset_list[i]['data']
+        cluster_labels = dataset_list[i]['tissue_labels']  
         unique_labels = np.unique(cluster_labels)
-        # Random oversampling based on cell cluster sizes
-        gene_exp, cluster_labels = RandomOverSampler(random_state=imblearn_seed).fit_sample(gene_exp, cluster_labels)
-
+        
         # construct DataLoader list
         for j in range(len(unique_labels)):
             idx = cluster_labels == unique_labels[j]
+            
             if cuda:
                 torch_dataset = torch.utils.data.TensorDataset(
-                    torch.FloatTensor(gene_exp[idx,:]).cuda(), torch.LongTensor(cluster_labels[idx]).cuda())
+                                       torch.FloatTensor(data[idx,:]).cuda(), torch.LongTensor(cluster_labels[idx]).cuda())
             else:
                 torch_dataset = torch.utils.data.TensorDataset(
-                    torch.FloatTensor(gene_exp[idx, :]), torch.LongTensor(cluster_labels[idx]))
-            data_loader = torch.utils.data.DataLoader(torch_dataset, batch_size=batch_size,
-                                                        shuffle=True, drop_last=True)
+                                        torch.FloatTensor(data[idx, :]), torch.LongTensor(cluster_labels[idx]))
+                
+            data_loader = torch.utils.data.DataLoader(torch_dataset, batch_size=min(len(data[idx,:]),batch_size),
+                                                      shuffle=True, drop_last=False)
+            
             cluster_loader_dict[unique_labels[j]] = data_loader
 
+    
     # create model
-    if code_dim == 20:
-        model = models.autoencoder_20(num_inputs=num_inputs)
-    elif code_dim == 2:
-        model = models.autoencoder_2(num_inputs=num_inputs)
-    else:
-        model = models.autoencoder_20(num_inputs=num_inputs)
+    model = models.autoencoder_2(num_inputs=num_inputs, code_dim=code_dim)
     if cuda:
-        model.cuda()
+        model.cuda()    
+        
 
-    # training
+    # model training
     loss_total_list = []  # list of total loss
     loss_reconstruct_list = []
     loss_transfer_list = []
+    
+    print('{:} MODEL TRAINING'.format(time.asctime(time.localtime())))
+    
     for epoch in range(1, num_epochs + 1):
         avg_loss, avg_reco_loss, avg_tran_loss = training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras)
         # terminate early if loss is nan
@@ -84,18 +88,19 @@ def training(dataset_list, cluster_pairs, nn_paras):
 
 
 def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
-    """ Training an epoch
-        Args:
-            epoch: number of the current epoch
-            model: autoencoder
-            cluster_loader_dict: dict of DataLoaders indexed by clusters
-            cluster_pairs: pairs of similar clusters with weights
-            nn_paras: parameters for neural network training
-        Returns:
-            avg_total_loss: average total loss of mini-batches
-            avg_reco_loss: average reconstruction loss of mini-batches
-            avg_tran_loss: average transfer loss of mini-batches
+    """ Training a single epoch
+    epoch: number of the current epoch
+    model: autoencoder
+    cluster_loader_dict: dict of DataLoaders indexed by clusters
+    cluster_pairs: pairs of similar clusters with weights
+    nn_paras: parameters for neural network training
+
+    returns:
+    avg_total_loss: average total loss of mini-batches
+    avg_reco_loss: average reconstruction loss of mini-batches
+    avg_tran_loss: average transfer loss of mini-batches
         """
+    
     log_interval = nn_paras['log_interval']
     # load nn parameters
     base_lr = nn_paras['base_lr']
@@ -107,18 +112,17 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
 
     # step decay of learning rate
     learning_rate = base_lr / math.pow(2, math.floor(epoch / lr_step))
-    # regularization parameterbetween two losses
+    
+    # regularization parameter between two losses, increasing over time
     gamma_rate = 2 / (1 + math.exp(-10 * (epoch) / num_epochs)) - 1
     gamma = gamma_rate * gamma
 
     if epoch % log_interval == 0:
-        print('{:}, Epoch {}, learning rate {:.3E}, gamma {:.3E}'.format(
-                time.asctime(time.localtime()), epoch, learning_rate, gamma))
+        print('epoch {}\t learning rate {:.4f}\t gamma {:.4f}\t'.format(epoch, learning_rate, gamma))
 
-    optimizer = torch.optim.Adam([
-        {'params': model.encoder.parameters()},
-        {'params': model.decoder.parameters()},
-    ], lr=learning_rate, weight_decay=l2_decay)
+    optimizer = torch.optim.Adam([{'params': model.encoder.parameters()},
+                                  {'params': model.decoder.parameters()}], 
+                                 lr=learning_rate, weight_decay=l2_decay)
 
     model.train()
 
@@ -175,8 +179,16 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
             loss_reconstruct = loss_reconstruct.cuda()
         for cls in data_dict:
             loss_reconstruct += F.mse_loss(reconstruct_dict[cls], data_dict[cls])
+            
+        # ortho loss
+        #ortho_loss = torch.FloatTensor([0])
+        #if cuda:
+        #    ortho_loss = ortho_loss.cuda()
+        #for cls in code_dict:
+        #    ortho_loss += F.mse_loss(torch.matmul(torch.transpose(code_dict[cls],1,0), code_dict[cls]), torch.eye(code_dict[cls].shape[1]).cuda())
 
-        loss = loss_reconstruct + gamma * loss_transfer
+        #loss = (loss_reconstruct + (0.1*ortho_loss)) + gamma * loss_transfer
+        loss = (loss_reconstruct) + gamma * loss_transfer
 
         loss.backward()
         optimizer.step()
@@ -187,24 +199,24 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
         total_reco_loss += loss_reconstruct.data.item()
         total_tran_loss += loss_transfer.data.item()
 
-    avg_total_loss = total_loss / num_batches
-    avg_reco_loss = total_reco_loss / num_batches
-    avg_tran_loss = total_tran_loss / num_batches
+    avg_total_loss = safe_div(total_loss, num_batches)
+    avg_reco_loss = safe_div(total_reco_loss, num_batches)
+    avg_tran_loss = safe_div(total_tran_loss, num_batches)
 
     if epoch % log_interval == 0:
-        print('Avg_loss {:.3E}\t Avg_reconstruct_loss {:.3E}\t Avg_transfer_loss {:.3E}'.format(
+        print('average_loss {:.3f}\t average_reconstruct_loss {:.3f}\t average_transfer_loss {:.3f}'.format(
             avg_total_loss, avg_reco_loss, avg_tran_loss))
     return avg_total_loss, avg_reco_loss, avg_tran_loss
 
 
 def testing(model, dataset_list, nn_paras):
-    """ Training an epoch
-    Args:
-        model: autoencoder
-        dataset_list: list of datasets for batch correction
-        nn_paras: parameters for neural network training
-    Returns:
-        code_list: list pf embedded codes
+    """ apply trained model to data
+    model: trained autoencoder
+    dataset_list: list of datasets to model
+    nn_paras: parameters for neural network training
+        
+    code_list: list of embedded codes
+    recon_list: reconstructed data
     """
 
     # load nn parameters
@@ -213,28 +225,39 @@ def testing(model, dataset_list, nn_paras):
     data_loader_list = []
     num_cells = []
     for dataset in dataset_list:
+        
         torch_dataset = torch.utils.data.TensorDataset(
-            torch.FloatTensor(dataset['gene_exp'].transpose()), torch.LongTensor(dataset['cell_labels']))
-        data_loader = torch.utils.data.DataLoader(torch_dataset, batch_size=len(dataset['cell_labels']),
+                                         torch.FloatTensor(dataset['data']), torch.LongTensor(dataset['sample_labels']))
+        
+        data_loader = torch.utils.data.DataLoader(torch_dataset, batch_size=len(dataset['sample_labels']),
                                                     shuffle=False)
         data_loader_list.append(data_loader)
-        num_cells.append(len(dataset["cell_labels"]))
+        num_cells.append(len(dataset["sample_labels"]))
 
     model.eval()
 
-    code_list = [] # list pf embedded codes
+    code_list = [] # list of embedded codes
+    recon_list = []
+    
     for i in range(len(data_loader_list)):
         idx = 0
         with torch.no_grad():
             for data, labels in data_loader_list[i]:
                 if cuda:
                     data, labels = data.cuda(), labels.cuda()
-                code_tmp, _ = model(data)
+                code_tmp, recon_tmp = model(data)
                 code_tmp = code_tmp.cpu().numpy()
+                recon_tmp = recon_tmp.cpu().numpy()
+                
                 if idx == 0:
                     code = np.zeros((code_tmp.shape[1], num_cells[i]))
+                    recon = np.zeros((recon_tmp.shape[1], num_cells[i]))
+                    
                 code[:, idx:idx + code_tmp.shape[0]] = code_tmp.T
+                recon[:, idx:idx + recon_tmp.shape[0]] = recon_tmp.T
                 idx += code_tmp.shape[0]
+                
         code_list.append(code)
+        recon_list.append(recon)
 
-    return code_list
+    return code_list, recon_list

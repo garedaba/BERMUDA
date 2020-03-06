@@ -114,7 +114,8 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
     learning_rate = base_lr / math.pow(2, math.floor(epoch / lr_step))
     
     # regularization parameter between two losses, increasing over time
-    gamma_rate = 2 / (1 + math.exp(-10 * (epoch) / num_epochs)) - 1
+    #gamma_rate = 2 / (1 + math.exp(-10 * (epoch) / num_epochs)) - 1
+    gamma_rate = 2 / (1 + math.exp(-5 * (epoch) / num_epochs)) - 1
     gamma = gamma_rate * gamma
 
     if epoch % log_interval == 0:

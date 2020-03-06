@@ -30,12 +30,12 @@ if cuda:
 
 # model parameters
 code_dim = 2 # latent space
-batch_size = 100 # batch size for each cluster
-num_epochs = 1500
+batch_size = 32 # batch size for each cluster
+num_epochs = 1000
 base_lr = 1e-3
-lr_step = 200  # step decay of learning rates
+lr_step = 100  # step decay of learning rates
 l2_decay = 5e-5
-gamma = 1  # regularization between reconstruction and transfer learning - changes with epoch
+gamma = .5  # regularization between reconstruction and transfer learning - changes with epoch
 log_interval = 1
 
 # parameter dictionary
@@ -46,11 +46,11 @@ nn_paras = {'code_dim': code_dim, 'batch_size': batch_size, 'num_epochs': num_ep
 
 
 # data generation parameters
-number_of_subjects = 5
+number_of_subjects = 10
 number_of_tissues = 10
-number_of_voxels = 150
+number_of_voxels = 50
 number_of_features = 10
-set_noise = 0.35
+set_noise = 0.33
 
 pre_process_paras = {'scale': False,          # Z-score
                      'standardise': True}   # [0,1]
@@ -100,8 +100,8 @@ if __name__ == '__main__':
     #np.random.seed(seed)
     #torch.manual_seed(seed)
 
-    #torch.backends.cudnn.deterministic = True
-    #torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
     nn_paras['num_inputs'] = np.shape(dataset_list[0]['data'])[1]
 

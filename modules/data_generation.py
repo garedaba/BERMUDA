@@ -11,6 +11,7 @@ from rpy2.robjects.pandas2ri import ri2py
 from scipy.stats import zscore
 
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics.pairwise import rbf_kernel, linear_kernel
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from umap import UMAP
@@ -63,14 +64,17 @@ def isPD(B):
 def generate_data(n_subjects=10, n_tissue_types=15, n_voxels=50, n_features=10, noise=0.5):
     """ Generates correlated feature data with covariance structure dictated by subject and tissue type """
 
+    # random number of voxels per tissue between 20% and 150% of n_voxels
+    vox_list = np.random.randint(round(n_voxels*.2), round(n_voxels*1.5), size=n_subjects*n_tissue_types)
+
     # total number of observations
-    total_n = n_subjects * n_tissue_types * n_voxels
+    total_n = sum(vox_list)
     print("total number of observations: ", total_n)
 
     # subject IDS
-    subjects = np.repeat(np.arange(n_subjects), n_tissue_types*n_voxels)
+    subjects = np.repeat(np.repeat(np.arange(n_subjects), n_tissue_types), vox_list)
     # tissue IDS
-    tissues = np.repeat(np.tile(np.arange(n_tissue_types), n_subjects), n_voxels)
+    tissues = np.repeat(np.tile(np.arange(n_tissue_types), n_subjects), vox_list)
 
     # One hot encode
     meta = np.vstack((subjects, tissues)).T
@@ -79,7 +83,8 @@ def generate_data(n_subjects=10, n_tissue_types=15, n_voxels=50, n_features=10, 
     # calculate covariance matrix and project to SPD
     label_data = zscore(meta_ohe, axis=0)
     label_data_noisy = label_data + np.random.normal(loc=0, scale=noise, size=np.shape(label_data))
-    covMat = np.dot(label_data_noisy, label_data_noisy.T)
+    #covMat = np.dot(label_data_noisy, label_data_noisy.T)
+    covMat = rbf_kernel(label_data_noisy) + linear_kernel(label_data_noisy)
     covMat = nearestPD(covMat)
 
     # use R function to create correlated feature data

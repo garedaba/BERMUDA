@@ -128,7 +128,7 @@ def rotation_and_translation(P, Q):
     Q: k x d array, target data
     
     return:
-    c, R, T: such that aligned_Q = Q.dot(c*R)+T
+    c, R, T: such that aligned_P = P.dot(c*R)+T
     """
     assert P.shape == Q.shape
     n, dim = P.shape
@@ -151,7 +151,7 @@ def rotation_and_translation(P, Q):
 
     return c, R, t
 
-def align_latent_space(y_test, y_train, test_code, train_code):
+def align_latent_space(y_test, y_train, test_code, train_code, remove_labels=True):
     """ align codes to latent space learned during training
     y_test: array, test metadata - unseen by algorithm
     y_train: array, metadata used in model training
@@ -165,6 +165,12 @@ def align_latent_space(y_test, y_train, test_code, train_code):
     test_coord = []
     train_coord = []
     # for each tissue in test data
+    if remove_labels:
+        test_labels = pd.unique(np.random.choice(pd.unique(y_test.tissues), size=len(pd.unique(y_test.tissues))))
+        print('{:} labels removed'.format(len(pd.unique(y_test.tissues))-len(test_labels)))
+    else:
+        test_labels = y_test.tissues.copy()
+
     for tiss in pd.unique(y_test.tissues):
         # get centroids for test data
         test_coord.append(get_centroids(test_code[y_test.tissues==tiss]))
@@ -192,15 +198,18 @@ def plot_loss(loss_total_list, loss_reconstruct_list, loss_transfer_list, save_p
     
     returns: 
     """   
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 8))
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 8))
     ax1.plot(range(len(loss_total_list)), loss_total_list, "r:",linewidth=1)
     ax1.legend(['total loss'])
     ax1.set_xlabel("epochs")
     ax1.set_ylabel("loss")
     ax2.plot(range(len(loss_reconstruct_list)), loss_reconstruct_list, "b--",linewidth=1)
-    ax2.plot(range(len(loss_transfer_list)), loss_transfer_list, "g-",linewidth=1)
-    ax2.legend(['reconstruction loss', 'transfer loss'])
+    ax2.legend(['reconstruction loss'])
     ax2.set_xlabel("epochs")
     ax2.set_ylabel("loss")
+    ax3.plot(range(len(loss_transfer_list)), loss_transfer_list, "g-",linewidth=1)
+    ax3.legend(['transfer loss'])
+    ax3.set_xlabel("epochs")
+    ax3.set_ylabel("loss")
     fig.savefig(save_path, dpi=300)
     plt.close(fig)

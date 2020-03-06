@@ -17,7 +17,7 @@ Using BERMUDA to define a latent space capturing tissue-specific variation in di
 *main_synthetic.py*: example using synthetic data
 
 ### todo
-~* change data generation to vary number of voxels in each tissue~
+* ~change data generation to vary number of voxels in each tissue~
 * improve plots
 * implement divergence scores for train/test data
 

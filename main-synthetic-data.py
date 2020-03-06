@@ -119,8 +119,8 @@ if __name__ == '__main__':
 
     # PLOT LATENT SPACE ######################################################################
     fig, (ax1, ax2) = plt.subplots(1,2, figsize=(10,5))
-    ax1.scatter(train_code[:,0], train_code[:,1], c=y_train.subjects,  cmap='gist_rainbow')
-    ax2.scatter(train_code[:,0], train_code[:,1], c=y_train.tissues,  cmap='rainbow')
+    ax1.scatter(train_code[:,0], train_code[:,1], c=y_train.subjects,  alpha=0.5, edgecolor='grey', s=30, cmap='jet')
+    ax2.scatter(train_code[:,0], train_code[:,1], c=y_train.tissues,  alpha=0.5, edgecolor='grey', s=30, cmap='viridis')
     ax1.set_title('subject')
     ax2.set_title('tissue')
     for ax in [ax1, ax2]:
@@ -154,14 +154,14 @@ if __name__ == '__main__':
 
     # plot
     fig, (ax1, ax2) = plt.subplots(2,3, figsize=(12,6), sharey=True, sharex=True)
-    ax1[0].scatter(train_code[:,0], train_code[:,1], c=y_train.subjects, cmap='gist_rainbow')
-    ax2[0].scatter(train_code[:,0], train_code[:,1], c=y_train.tissues, cmap='rainbow')
+    ax1[0].scatter(train_code[:,0], train_code[:,1], c=y_train.subjects, alpha=0.5, edgecolor='grey', s=20, cmap='jet')
+    ax2[0].scatter(train_code[:,0], train_code[:,1], c=y_train.tissues, alpha=0.5, edgecolor='grey', s=20, cmap='viridis')
 
-    ax1[1].scatter(test_code[:,0], test_code[:,1], c=y_test.subjects, cmap='gist_rainbow')
-    ax2[1].scatter(test_code[:,0], test_code[:,1], c=y_test.tissues, cmap='rainbow')
+    ax1[1].scatter(test_code[:,0], test_code[:,1], c=y_test.subjects,alpha=0.5, edgecolor='grey', s=20, cmap='jet')
+    ax2[1].scatter(test_code[:,0], test_code[:,1], c=y_test.tissues, alpha=0.5, edgecolor='grey', s=20, cmap='viridis')
 
-    ax1[2].scatter(all_aligned[:,0], all_aligned[:,1], c=y_test.subjects, cmap='gist_rainbow')
-    ax2[2].scatter(all_aligned[:,0], all_aligned[:,1], c=y_test.tissues, cmap='rainbow')
+    ax1[2].scatter(all_aligned[:,0], all_aligned[:,1], c=y_test.subjects, alpha=0.5, edgecolor='grey', s=20, cmap='jet')
+    ax2[2].scatter(all_aligned[:,0], all_aligned[:,1], c=y_test.tissues, alpha=0.5, edgecolor='grey', s=20, cmap='viridis')
 
     ax1[0].set_title('training data')
     ax1[1].set_title('test data')

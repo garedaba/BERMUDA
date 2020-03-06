@@ -135,8 +135,8 @@ def plot_synthetic_data(meta, data, transform='pca', outdir='.'):
     
     # plot
     fig, (ax1, ax2) = plt.subplots(1,2, figsize=(10,5), sharey=True)
-    ax1.scatter(lowd[:,0], lowd[:,1], c=meta['subjects'], cmap='gist_rainbow')
-    ax2.scatter(lowd[:,0], lowd[:,1], c=meta['tissues'], cmap='rainbow')
+    ax1.scatter(lowd[:,0], lowd[:,1], c=meta['subjects'], alpha=0.5, edgecolor='grey', s=20, cmap='jet')
+    ax2.scatter(lowd[:,0], lowd[:,1], c=meta['tissues'], alpha=0.5, edgecolor='grey', s=20, cmap='viridis')
 
     ax1.set_title('subjects', fontsize=20)
     ax2.set_title('tissues', fontsize=20)

@@ -24,7 +24,7 @@ def training(dataset_list, cluster_pairs, nn_paras):
     dataset_list: list of datasets for batch correction
     cluster_pairs: pairs of similar clusters with weights
     nn_paras: parameters for neural network training
-    
+
     returns:
     model: trained autoencoder
     loss_total_list: list of total loss
@@ -42,39 +42,39 @@ def training(dataset_list, cluster_pairs, nn_paras):
     cluster_loader_dict = {}
     for i in range(len(dataset_list)):
         data = dataset_list[i]['data']
-        cluster_labels = dataset_list[i]['tissue_labels']  
+        cluster_labels = dataset_list[i]['tissue_labels']
         unique_labels = np.unique(cluster_labels)
-        
+
         # construct DataLoader list
         for j in range(len(unique_labels)):
             idx = cluster_labels == unique_labels[j]
-            
+
             if cuda:
                 torch_dataset = torch.utils.data.TensorDataset(
                                        torch.FloatTensor(data[idx,:]).cuda(), torch.LongTensor(cluster_labels[idx]).cuda())
             else:
                 torch_dataset = torch.utils.data.TensorDataset(
                                         torch.FloatTensor(data[idx, :]), torch.LongTensor(cluster_labels[idx]))
-                
+
             data_loader = torch.utils.data.DataLoader(torch_dataset, batch_size=min(len(data[idx,:]),batch_size),
                                                       shuffle=True, drop_last=False)
-            
+
             cluster_loader_dict[unique_labels[j]] = data_loader
 
-    
+
     # create model
     model = models.autoencoder_2(num_inputs=num_inputs, code_dim=code_dim)
     if cuda:
-        model.cuda()    
-        
+        model.cuda()
+
 
     # model training
     loss_total_list = []  # list of total loss
     loss_reconstruct_list = []
     loss_transfer_list = []
-    
+
     print('{:} MODEL TRAINING'.format(time.asctime(time.localtime())))
-    
+
     for epoch in range(1, num_epochs + 1):
         avg_loss, avg_reco_loss, avg_tran_loss = training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras)
         # terminate early if loss is nan
@@ -100,7 +100,7 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
     avg_reco_loss: average reconstruction loss of mini-batches
     avg_tran_loss: average transfer loss of mini-batches
         """
-    
+
     log_interval = nn_paras['log_interval']
     # load nn parameters
     base_lr = nn_paras['base_lr']
@@ -112,7 +112,7 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
 
     # step decay of learning rate
     learning_rate = base_lr / math.pow(2, math.floor(epoch / lr_step))
-    
+
     # regularization parameter between two losses, increasing over time
     #gamma_rate = 2 / (1 + math.exp(-10 * (epoch) / num_epochs)) - 1
     gamma_rate = 2 / (1 + math.exp(-5 * (epoch) / num_epochs)) - 1
@@ -122,7 +122,7 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
         print('epoch {}\t learning rate {:.4f}\t gamma {:.4f}\t'.format(epoch, learning_rate, gamma))
 
     optimizer = torch.optim.Adam([{'params': model.encoder.parameters()},
-                                  {'params': model.decoder.parameters()}], 
+                                  {'params': model.decoder.parameters()}],
                                  lr=learning_rate, weight_decay=l2_decay)
 
     model.train()
@@ -180,7 +180,7 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
             loss_reconstruct = loss_reconstruct.cuda()
         for cls in data_dict:
             loss_reconstruct += F.mse_loss(reconstruct_dict[cls], data_dict[cls])
-            
+
         # ortho loss
         #ortho_loss = torch.FloatTensor([0])
         #if cuda:
@@ -215,7 +215,7 @@ def testing(model, dataset_list, nn_paras):
     model: trained autoencoder
     dataset_list: list of datasets to model
     nn_paras: parameters for neural network training
-        
+
     code_list: list of embedded codes
     recon_list: reconstructed data
     """
@@ -226,10 +226,10 @@ def testing(model, dataset_list, nn_paras):
     data_loader_list = []
     num_cells = []
     for dataset in dataset_list:
-        
+
         torch_dataset = torch.utils.data.TensorDataset(
                                          torch.FloatTensor(dataset['data']), torch.LongTensor(dataset['sample_labels']))
-        
+
         data_loader = torch.utils.data.DataLoader(torch_dataset, batch_size=len(dataset['sample_labels']),
                                                     shuffle=False)
         data_loader_list.append(data_loader)
@@ -239,7 +239,7 @@ def testing(model, dataset_list, nn_paras):
 
     code_list = [] # list of embedded codes
     recon_list = []
-    
+
     for i in range(len(data_loader_list)):
         idx = 0
         with torch.no_grad():
@@ -249,15 +249,15 @@ def testing(model, dataset_list, nn_paras):
                 code_tmp, recon_tmp = model(data)
                 code_tmp = code_tmp.cpu().numpy()
                 recon_tmp = recon_tmp.cpu().numpy()
-                
+
                 if idx == 0:
                     code = np.zeros((code_tmp.shape[1], num_cells[i]))
                     recon = np.zeros((recon_tmp.shape[1], num_cells[i]))
-                    
+
                 code[:, idx:idx + code_tmp.shape[0]] = code_tmp.T
                 recon[:, idx:idx + recon_tmp.shape[0]] = recon_tmp.T
                 idx += code_tmp.shape[0]
-                
+
         code_list.append(code)
         recon_list.append(recon)
 

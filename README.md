@@ -18,7 +18,9 @@ Using BERMUDA to define a latent space capturing tissue-specific variation in di
 
 ### todo
 * ~change data generation to vary number of voxels in each tissue~
-* improve plots
+* ~improve plots~
+* classifier in latent space, project to discriminative axes?
+* plots for proba classifications
 * implement divergence scores for train/test data
 
 

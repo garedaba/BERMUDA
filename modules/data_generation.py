@@ -104,20 +104,20 @@ def generate_data(n_subjects=10, n_tissue_types=15, n_voxels=50, n_features=10, 
     # remove voxel ID, translate to python
     data = ri2py(corr_Data)
     data = data.iloc[:,1:]
-    
+
     # impart covariance structure dictated by meta data
     data = (data.T.dot(np.linalg.cholesky(covMat).T)).T
-    
+
     meta = pd.DataFrame(meta)
     meta.columns=['subjects', 'tissues']
-    
+
     return meta, data
 
-def plot_synthetic_data(meta, data, transform='pca', outdir='.'):
+def plot_synthetic_data(meta, data, transform='pca', outfile='out.png'):
     """Plot a low-d representation of synthetic data
     transform: 'pca', 'umap', or 'tsne'
     """
-    
+
     if transform=='pca':
         transformer = PCA(n_components=2)
     elif transform=='umap':
@@ -127,12 +127,12 @@ def plot_synthetic_data(meta, data, transform='pca', outdir='.'):
     else:
         print("transformer not recognised - specify 'pca', 'umap' or 'tsne'")
         exit(1)
-    
+
     ss = StandardScaler()
-    
+
     # project to 2D
     lowd = transformer.fit_transform(ss.fit_transform(data))
-    
+
     # plot
     fig, (ax1, ax2) = plt.subplots(1,2, figsize=(10,5), sharey=True)
     ax1.scatter(lowd[:,0], lowd[:,1], c=meta['subjects'], alpha=0.5, edgecolor='grey', s=20, cmap='jet')
@@ -146,8 +146,7 @@ def plot_synthetic_data(meta, data, transform='pca', outdir='.'):
         ax.tick_params(axis='both', labelsize=15)
     ax1.set_ylabel('dim1', fontsize=15)
 
-    
-    plt.tight_layout()
-    plt.savefig(outdir + '/' + transform + '-synthetic.png')
-    plt.close()
 
+    plt.tight_layout()
+    plt.savefig(outfile)
+    plt.close()

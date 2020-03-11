@@ -29,9 +29,9 @@ if cuda:
     torch.cuda.set_device(device_id)
 
 # model parameters
-code_dim = 2 # latent space
+code_dim = 3 # latent space
 batch_size = 32 # batch size for each cluster
-num_epochs = 1000
+num_epochs = 500
 base_lr = 1e-3
 lr_step = 100  # step decay of learning rates
 l2_decay = 5e-5
@@ -73,7 +73,7 @@ if __name__ == '__main__':
                                    n_features = number_of_features,
                                    noise = set_noise)
 
-    plot_synthetic_data(metadata, data, outdir=outDir)
+    plot_synthetic_data(metadata, data, transform='pca', outfile=outDir + '/pca-synthetic.png')
     #########################################################################################
 
     # DATA PREP #############################################################################
@@ -93,13 +93,6 @@ if __name__ == '__main__':
     #########################################################################################
 
     # MODEL TRAINING ########################################################################
-    # set seed for reproducibility
-    #seed = 0
-    #torch.manual_seed(seed) # set seed on CPU and GPU for reproducibility
-    #random.seed(seed)
-    #np.random.seed(seed)
-    #torch.manual_seed(seed)
-
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
@@ -117,7 +110,41 @@ if __name__ == '__main__':
     train_recon = (np.concatenate(recon_list, axis=1).transpose())
     ##########################################################################################
 
-    # PLOT LATENT SPACE ######################################################################
+    # EVALUATE TEST DATA #####################################################################
+    test_data_set, _, _ = prepare_data(x_test, y_test)
+
+    code_list_test, recon_list_test = testing(model, test_data_set, nn_paras)
+    test_code = (np.concatenate(code_list_test, axis=1).transpose())
+    test_recon = (np.concatenate(recon_list_test, axis=1).transpose())
+
+    train_mse = mean_squared_error(x_train, train_recon)
+    test_mse = mean_squared_error(x_test, test_recon)
+    print('train_error {:.3f}'.format(train_mse))
+    print('test_error {:.3f}'.format(test_mse))
+    print('')
+
+    # align to latent space
+    print('aligning latent spaces')
+    all_aligned =[]
+
+    for n, test_sub in enumerate(pd.unique(y_test.subjects)):
+        align_sub_code, _, _ = align_latent_space(y_test[y_test.subjects==test_sub], y_train, test_code[y_test.subjects==test_sub], train_code)
+        all_aligned.append(align_sub_code)
+
+    all_aligned = np.vstack(all_aligned)
+
+    # project all to the same orthogonal axes
+    train_code, transformer = project_to_orthogonal_axes(train_code, ndim=None)
+    test_code = np.dot(test_code, transformer)
+    all_aligned = np.dot(all_aligned, transformer)
+
+    # SAVE OUTPUT ###############################################################################
+    train_out = pd.concat((y_train, pd.DataFrame(train_code, index=y_train.index)), axis=1)
+    train_out.to_csv(outDir + '/embedded-train-data.csv')
+    test_out = pd.concat((y_test, pd.DataFrame(all_aligned, index=y_test.index)), axis=1)
+    test_out.to_csv(outDir + '/embedded-test-data.csv')
+
+    # PLOT LATENT SPACE with training data #####################################################
     fig, (ax1, ax2) = plt.subplots(1,2, figsize=(10,5))
     ax1.scatter(train_code[:,0], train_code[:,1], c=y_train.subjects,  alpha=0.5, edgecolor='grey', s=30, cmap='jet')
     ax2.scatter(train_code[:,0], train_code[:,1], c=y_train.tissues,  alpha=0.5, edgecolor='grey', s=30, cmap='viridis')
@@ -130,29 +157,7 @@ if __name__ == '__main__':
     plt.savefig(outDir + '/training-latent-space.png')
     ##########################################################################################
 
-    # EVALUATE TEST DATA #####################################################################
-    test_data_set, _, _ = prepare_data(x_test, y_test)
-
-    code_list_test, recon_list_test = testing(model, test_data_set, nn_paras)
-    test_code = (np.concatenate(code_list_test, axis=1).transpose())
-    test_recon = (np.concatenate(recon_list_test, axis=1).transpose())
-
-
-    train_mse = mean_squared_error(x_train, train_recon)
-    test_mse = mean_squared_error(x_test, test_recon)
-    print('train_error {:.3f}'.format(train_mse))
-    print('test_error {:.3f}'.format(test_mse))
-
-    # align to latent space
-    all_aligned =[]
-
-    for n, test_sub in enumerate(pd.unique(y_test.subjects)):
-        align_sub_code, _, _ = align_latent_space(y_test[y_test.subjects==test_sub], y_train, test_code[y_test.subjects==test_sub], train_code)
-        all_aligned.append(align_sub_code)
-
-    all_aligned = np.vstack(all_aligned)
-
-    # plot
+    # PLOT ALL LATENT SPACES #################################################################
     fig, (ax1, ax2) = plt.subplots(2,3, figsize=(12,6), sharey=True, sharex=True)
     ax1[0].scatter(train_code[:,0], train_code[:,1], c=y_train.subjects, alpha=0.5, edgecolor='grey', s=20, cmap='jet')
     ax2[0].scatter(train_code[:,0], train_code[:,1], c=y_train.tissues, alpha=0.5, edgecolor='grey', s=20, cmap='viridis')
@@ -173,4 +178,3 @@ if __name__ == '__main__':
     plt.savefig(outDir + '/latent-spaces-all.png')
 
     ##########################################################################################
-

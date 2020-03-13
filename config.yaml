@@ -1,0 +1,23 @@
+cuda_setup:
+  device_id: 0
+
+model_params:
+  code_dim: 3 # latent space
+  batch_size: 32 # batch size for each cluster
+  num_epochs: 1000
+  base_lr: 0.001
+  lr_step: 100  # step decay of learning rates
+  l2_decay: 0.00005
+  gamma: .5  # regularization between reconstruction and transfer learning - changes with epoch
+  log_interval: 1
+
+data_gen_params:
+  number_of_subjects: 10
+  number_of_tissues: 10
+  number_of_voxels: 50
+  number_of_features: 10
+  set_noise: 0.33
+
+pre_process_paras:
+  scale: no   # Z-score
+  standardise: yes   # [0,1]

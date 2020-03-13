@@ -7,57 +7,53 @@ import os
 
 import numpy as np
 import pandas as pd
-import random
-import time
-import logging
 import matplotlib.pyplot as plt
-import pickle
+import yaml
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, plot_confusion_matrix
+from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.gaussian_process.kernels import RBF
+from sklearn.preprocessing import LabelEncoder
 
 from modules.data_generation import generate_data, plot_synthetic_data
 from modules.helpers import *
+from models.classification import *
 
 from BERMUDA import training, testing
 
+# SETUP ########################################################################
+# load parameters
+with open("config.yaml", 'r') as ymlfile:
+    cfg = yaml.safe_load(ymlfile)
+
+print(yaml.dump(cfg, default_flow_style=False, default_style=''))
+print('')
+
 # CUDA setup
-device_id = 0 # ID of GPU to use
 cuda = torch.cuda.is_available()
 print('GPU is available: ', cuda)
 if cuda:
-    torch.cuda.set_device(device_id)
+    torch.cuda.set_device(cfg['cuda_setup']['device_id'])
 
 # model parameters
-code_dim = 3 # latent space
-batch_size = 32 # batch size for each cluster
-num_epochs = 500
-base_lr = 1e-3
-lr_step = 100  # step decay of learning rates
-l2_decay = 5e-5
-gamma = .5  # regularization between reconstruction and transfer learning - changes with epoch
-log_interval = 1
-
-# parameter dictionary
-nn_paras = {'code_dim': code_dim, 'batch_size': batch_size, 'num_epochs': num_epochs,
-            'base_lr': base_lr, 'lr_step': lr_step,
-            'l2_decay': l2_decay, 'gamma': gamma,
-            'cuda': cuda, 'log_interval': log_interval}
-
+nn_params = cfg['model_params']
+nn_params['cuda'] = cuda
 
 # data generation parameters
-number_of_subjects = 10
-number_of_tissues = 10
-number_of_voxels = 50
-number_of_features = 10
-set_noise = 0.33
+data_gen_params = cfg['data_gen_params']
 
-pre_process_paras = {'scale': False,          # Z-score
-                     'standardise': True}   # [0,1]
+# preprocessing
+pre_process_paras = cfg['pre_process_paras']
 
+# classification
+le = LabelEncoder()
+kern = 1. * RBF()
+gpc = GaussianProcessClassifier(kernel=kern, n_jobs=-2)
+
+# output
 outDir = 'synthetic_data'
 os.makedirs(outDir, exist_ok=True)
-
 
 plt.ioff()
 
@@ -67,11 +63,11 @@ if __name__ == '__main__':
     # generate synthetic data
     print('')
     print('generating data')
-    metadata, data = generate_data(n_subjects = number_of_subjects,
-                                   n_tissue_types = number_of_tissues,
-                                   n_voxels = number_of_voxels,
-                                   n_features = number_of_features,
-                                   noise = set_noise)
+    metadata, data = generate_data(n_subjects = data_gen_params['number_of_subjects'],
+                                   n_tissue_types = data_gen_params['number_of_tissues'],
+                                   n_voxels = data_gen_params['number_of_voxels'],
+                                   n_features = data_gen_params['number_of_features'],
+                                   noise = data_gen_params['set_noise'])
 
     plot_synthetic_data(metadata, data, transform='pca', outfile=outDir + '/pca-synthetic.png')
     #########################################################################################
@@ -83,7 +79,7 @@ if __name__ == '__main__':
     y_train, y_test = metadata[metadata['subjects'].isin(train_idx)], metadata[metadata['subjects'].isin(test_idx)]
 
     # remove some tissue types from some subjects in training data
-    x_train, y_train = decimate_data(x_train, y_train, number_of_tissues)
+    x_train, y_train = decimate_data(x_train, y_train, data_gen_params['number_of_tissues'])
 
     # scale/standardise
     x_train, x_test = pre_process_datasets(x_train, x_test, pre_process_paras)
@@ -96,16 +92,16 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    nn_paras['num_inputs'] = np.shape(dataset_list[0]['data'])[1]
+    nn_params['num_inputs'] = np.shape(dataset_list[0]['data'])[1]
 
     # training
-    model, loss_total_list, loss_reconstruct_list, loss_transfer_list = training(dataset_list, cluster_pairs, nn_paras)
+    model, loss_total_list, loss_reconstruct_list, loss_transfer_list = training(dataset_list, cluster_pairs, nn_params)
 
     # plot training loss
     plot_loss(loss_total_list, loss_reconstruct_list, loss_transfer_list, outDir + '/model-loss.png')
 
     # training code
-    code_list, recon_list = testing(model, dataset_list, nn_paras)
+    code_list, recon_list = testing(model, dataset_list, nn_params)
     train_code = (np.concatenate(code_list, axis=1).transpose())
     train_recon = (np.concatenate(recon_list, axis=1).transpose())
     ##########################################################################################
@@ -113,12 +109,14 @@ if __name__ == '__main__':
     # EVALUATE TEST DATA #####################################################################
     test_data_set, _, _ = prepare_data(x_test, y_test)
 
-    code_list_test, recon_list_test = testing(model, test_data_set, nn_paras)
+    code_list_test, recon_list_test = testing(model, test_data_set, nn_params)
     test_code = (np.concatenate(code_list_test, axis=1).transpose())
     test_recon = (np.concatenate(recon_list_test, axis=1).transpose())
 
     train_mse = mean_squared_error(x_train, train_recon)
     test_mse = mean_squared_error(x_test, test_recon)
+    print('')
+    print('reconstruction error')
     print('train_error {:.3f}'.format(train_mse))
     print('test_error {:.3f}'.format(test_mse))
     print('')
@@ -133,17 +131,47 @@ if __name__ == '__main__':
 
     all_aligned = np.vstack(all_aligned)
 
-    # project all to the same orthogonal axes
-    train_code, transformer = project_to_orthogonal_axes(train_code, ndim=None)
-    test_code = np.dot(test_code, transformer)
-    all_aligned = np.dot(all_aligned, transformer)
+    # project data to the most discriminant axes
+    rot_train_code, transformer = project_to_discriminant_axes(train_code, y_train.tissues, ndim=None)
+    rot_test_code = transformer.transform(test_code)
+    rot_all_aligned = transformer.transform(all_aligned)
+    ##########################################################################################
 
     # SAVE OUTPUT ###############################################################################
-    train_out = pd.concat((y_train, pd.DataFrame(train_code, index=y_train.index)), axis=1)
-    train_out.to_csv(outDir + '/embedded-train-data.csv')
-    test_out = pd.concat((y_test, pd.DataFrame(all_aligned, index=y_test.index)), axis=1)
-    test_out.to_csv(outDir + '/embedded-test-data.csv')
+    train_out = pd.concat((y_train, pd.DataFrame(rot_train_code, index=y_train.index)), axis=1)
+    train_out.to_csv(outDir + '/rotated-embedded-train-data.csv')
+    test_out = pd.concat((y_test, pd.DataFrame(rot_all_aligned, index=y_test.index)), axis=1)
+    test_out.to_csv(outDir + '/rotated-embedded-test-data.csv')
 
+    # RUN CLASSIFICATION IN LATENT SPACE #########################################################
+    # fit - use le to account for potential missing classes in test data
+    trained_model = train_classifier(rot_train_code, le.fit_transform(y_train.tissues), gpc)
+    # predict
+    train_predicted_proba = trained_model.predict_proba(rot_train_code)
+    test_predicted_proba = trained_model.predict_proba(rot_test_code)
+    # get accuracies
+    train_logloss, train_accuracy, train_confusion = calculate_model_accuracy(le.transform(y_train.tissues), train_predicted_proba)
+    test_logloss, test_accuracy, test_confusion = calculate_model_accuracy(le.transform(y_test.tissues), test_predicted_proba)
+
+    print('')
+    print('training data:')
+    print('accuracy: {:.3f} log loss: {:.3f}'.format(train_accuracy, train_logloss))
+    print('')
+    print('test data')
+    print('accuracy: {:.3f} log loss: {:.3f}'.format(test_accuracy, test_logloss))
+
+    # train using full data (not embedded)
+    full_trained_model = train_classifier(x_train, le.fit_transform(y_train.tissues), gpc)
+    # get accuracies
+    full_test_logloss, full_test_accuracy, _ = calculate_model_accuracy(le.transform(y_test.tissues), trained_model.predict_proba(x_test))
+
+    print('')
+    print('test data - no embedding')
+    print('accuracy: {:.3f} log loss: {:.3f}'.format(test_accuracy, test_logloss))
+    print('')
+    ###############################################################################################
+
+    # PLOTTING #####################################################################################
     # PLOT LATENT SPACE with training data #####################################################
     fig, (ax1, ax2) = plt.subplots(1,2, figsize=(10,5))
     ax1.scatter(train_code[:,0], train_code[:,1], c=y_train.subjects,  alpha=0.5, edgecolor='grey', s=30, cmap='jet')
@@ -176,5 +204,13 @@ if __name__ == '__main__':
     ax2[0].set_title('by tissue')
 
     plt.savefig(outDir + '/latent-spaces-all.png')
+    ##########################################################################################
 
+    # PLOT CONFUSION MATRICES ################################################################
+    fig, (ax1, ax2, ax3) = plt.subplots(1,3, figsize=(15,4), )
+    plot_confusion_matrix(trained_model, rot_train_code,  le.transform(y_train.tissues), values_format='1', cmap='Greens', ax=ax1)
+    plot_confusion_matrix(trained_model, rot_test_code,  le.transform(y_test.tissues), values_format='1', cmap='Greens', ax=ax2)
+    plot_confusion_matrix(full_trained_model, x_test,  le.transform(y_test.tissues), values_format='1', cmap='Greens', ax=ax3)
+
+    plt.savefig(outDir + '/confusion-matrices.png')
     ##########################################################################################

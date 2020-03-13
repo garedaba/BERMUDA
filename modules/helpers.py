@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.utils import check_array
 
 def pre_process_datasets(train, test, paras):
     """perform Z-score standardisation or min-max scaling (to [0,1])
@@ -26,29 +28,6 @@ def pre_process_datasets(train, test, paras):
         train, test = mm.fit_transform(train), mm.transform(test)
 
     return train, test
-
-
-def decimate_data(data, metadata, n_tissues):
-    """remove a random selection of tissues from each subject in the training
-    data when using synthetically generated data, to mimic characteristics
-    of real data where not all subjects will have all tissue types
-
-    data: array/DataFrame, synthetic data to be decimated
-    metadata: pandas DataFrame with synthetic metadata: subject ID, tissue ID
-
-    returns:
-    data, metadata: with randomly selected tissue types removed
-    """
-
-    indices = pd.DataFrame()
-    for s in pd.unique(metadata['subjects']):
-        tissues_to_keep = np.random.choice(np.unique(metadata['tissues']), np.round(n_tissues*.75).astype(int))
-        s_indices = (metadata['subjects']==s) & (metadata['tissues'].isin(tissues_to_keep))
-
-        indices = pd.concat((indices, s_indices), axis=1)
-    indices = indices.sum(axis=1)
-
-    return data[indices==1], metadata[indices==1]
 
 
 def prepare_data(x, y):
@@ -101,6 +80,30 @@ def prepare_data(x, y):
         dataset_list.append(dataset)
 
     return dataset_list, y, cluster_pairs
+
+
+def decimate_data(data, metadata, n_tissues):
+    """remove a random selection of tissues from each subject in the training
+    data when using synthetically generated data, to mimic characteristics
+    of real data where not all subjects will have all tissue types
+
+    data: array/DataFrame, synthetic data to be decimated
+    metadata: pandas DataFrame with synthetic metadata: subject ID, tissue ID
+
+    returns:
+    data, metadata: with randomly selected tissue types removed
+    """
+
+    indices = pd.DataFrame()
+    for s in pd.unique(metadata['subjects']):
+        tissues_to_keep = np.random.choice(np.unique(metadata['tissues']), np.round(n_tissues*.75).astype(int))
+        s_indices = (metadata['subjects']==s) & (metadata['tissues'].isin(tissues_to_keep))
+
+        indices = pd.concat((indices, s_indices), axis=1)
+    indices = indices.sum(axis=1)
+
+    return data[indices==1], metadata[indices==1]
+
 
 
 def get_centroids(coordinates):
@@ -189,6 +192,60 @@ def align_latent_space(y_test, y_train, test_code, train_code, remove_labels=Tru
     return rot_test_code, (sc*rot), trans
 
 
+def project_to_discriminant_axes(codes, classes, ndim=None):
+    """ rotate embedded data to force discriminant axes onto first 2 dimensions via LDA
+    codes: n x d embedded data
+    classes: n, tissue classes
+    ndim: if None, return all dimensions, otherwise if ndim < d return reduced data
+            *** if ndim=dim(codes) this is just a linear rotation of axes to allow display of disc. axes
+            no information is lost ***
+
+    returns:
+    transformed_code: data projected onto disc. axes
+    lda: trained lda transformer to apply to other data or calculate inverse
+    """
+
+    dim = np.shape(codes)[1]
+    if ndim is None:
+        d = dim
+    elif ndim<dim:
+        d = ndim
+    else:
+        print("incorrect number of dimensions specified!")
+        exit(1)
+
+    # perform svd
+    lda = LinearDiscriminantAnalysis(solver='svd', n_components=d)
+
+    # transformed x
+    transformed_code = lda.fit_transform(codes, classes)
+
+    return transformed_code, lda
+
+
+def invert_transform(lda, x):
+    """ invert rotated data back to original embedded space
+
+    lda: trained lda transformer
+    x: data in rotated space
+
+    returns:
+    x_back: data in original embedded space
+    """
+
+    check_is_fitted(lda, ['xbar_', 'scalings_'], all_or_any=any)
+
+    inv = np.linalg.pinv(lda.scalings_)
+
+    x = check_array(x)
+    if lda.solver == 'svd':
+        x_back = np.dot(x, inv) + lda.xbar_
+    elif lda.solver == 'eigen':
+        x_back = np.dot(x, inv)
+
+    return x_back
+
+
 def plot_loss(loss_total_list, loss_reconstruct_list, loss_transfer_list, save_path):
     """ Plot loss versus epochs
     loss_total_list: list of total loss
@@ -213,33 +270,3 @@ def plot_loss(loss_total_list, loss_reconstruct_list, loss_transfer_list, save_p
     ax3.set_ylabel("loss")
     fig.savefig(save_path, dpi=300)
     plt.close(fig)
-
-def project_to_orthogonal_axes(codes, ndim=None):
-    """ project embedded data to orthogonal axies via svd
-    codes: n x d embedded data
-    ndim: if None, return all dimensions, otherwise if ndim < d return reduced data
-
-    returns:
-    projected_code: data projected onto orth. axes
-    transformation: transformation matrix
-    """
-
-    dim = np.shape(codes)[1]
-    if ndim is None:
-        d = dim
-    elif ndim<dim:
-        d = ndim
-    else:
-        print("incorrect number of dimensions specified!")
-        exit(1)
-
-    # perform svd
-    u, s, vt = np.linalg.svd(codes)
-
-    # transformed x
-    transformed_code = u[:,:d].dot(np.diag(s[:d]))
-
-    # transformer
-    transformer = vt[:3,:].T
-
-    return transformed_code, transformer

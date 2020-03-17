@@ -142,13 +142,14 @@ if __name__ == '__main__':
     train_out.to_csv(outDir + '/rotated-embedded-train-data.csv')
     test_out = pd.concat((y_test, pd.DataFrame(rot_all_aligned, index=y_test.index)), axis=1)
     test_out.to_csv(outDir + '/rotated-embedded-test-data.csv')
+    #########################################################################################
 
     # RUN CLASSIFICATION IN LATENT SPACE #########################################################
     # fit - use le to account for potential missing classes in test data
     trained_model = train_classifier(rot_train_code, le.fit_transform(y_train.tissues), gpc)
     # predict
     train_predicted_proba = trained_model.predict_proba(rot_train_code)
-    test_predicted_proba = trained_model.predict_proba(rot_test_code)
+    test_predicted_proba = trained_model.predict_proba(rot_all_aligned)
     # get accuracies
     train_logloss, train_accuracy, train_confusion = calculate_model_accuracy(le.transform(y_train.tissues), train_predicted_proba)
     test_logloss, test_accuracy, test_confusion = calculate_model_accuracy(le.transform(y_test.tissues), test_predicted_proba)
@@ -161,13 +162,15 @@ if __name__ == '__main__':
     print('accuracy: {:.3f} log loss: {:.3f}'.format(test_accuracy, test_logloss))
 
     # train using full data (not embedded)
-    full_trained_model = train_classifier(x_train, le.fit_transform(y_train.tissues), gpc)
+    gpc2 = GaussianProcessClassifier(kernel=kern, n_jobs=-2)
+    full_trained_model = train_classifier(x_train, le.fit_transform(y_train.tissues), gpc2)
     # get accuracies
-    full_test_logloss, full_test_accuracy, _ = calculate_model_accuracy(le.transform(y_test.tissues), trained_model.predict_proba(x_test))
+    full_test_logloss, full_test_accuracy, _ = calculate_model_accuracy(le.transform(y_test.tissues), full_trained_model.predict_proba(x_test))
 
     print('')
     print('test data - no embedding')
-    print('accuracy: {:.3f} log loss: {:.3f}'.format(test_accuracy, test_logloss))
+    print('accuracy: {:.3f} log loss: {:.3f}'.format(full_test_accuracy, full_test_logloss))
+
     print('')
     ###############################################################################################
 
@@ -209,8 +212,11 @@ if __name__ == '__main__':
     # PLOT CONFUSION MATRICES ################################################################
     fig, (ax1, ax2, ax3) = plt.subplots(1,3, figsize=(15,4), )
     plot_confusion_matrix(trained_model, rot_train_code,  le.transform(y_train.tissues), values_format='1', cmap='Greens', ax=ax1)
-    plot_confusion_matrix(trained_model, rot_test_code,  le.transform(y_test.tissues), values_format='1', cmap='Greens', ax=ax2)
+    plot_confusion_matrix(trained_model, rot_all_aligned,  le.transform(y_test.tissues), values_format='1', cmap='Greens', ax=ax2)
     plot_confusion_matrix(full_trained_model, x_test,  le.transform(y_test.tissues), values_format='1', cmap='Greens', ax=ax3)
+    ax1.set_title('embedded training data')
+    ax2.set_title('embedded testing data')
+    ax3.set_title('full testing data')
 
     plt.savefig(outDir + '/confusion-matrices.png')
     ##########################################################################################

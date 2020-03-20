@@ -12,8 +12,9 @@ import yaml
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, plot_confusion_matrix
-from sklearn.gaussian_process import GaussianProcessClassifier
-from sklearn.gaussian_process.kernels import RBF
+from sklearn.kernel_approximation import Nystroem
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 
 from modules.data_generation import generate_data, plot_synthetic_data
@@ -47,9 +48,17 @@ data_gen_params = cfg['data_gen_params']
 pre_process_paras = cfg['pre_process_paras']
 
 # classification
+# kernel approximation (allows nonlinear, probabilistic multiclass but a lot quicker)
+# samples n_comp samples to contruct RBF kernel (default gamma)
 le = LabelEncoder()
-kern = 1. * RBF()
-gpc = GaussianProcessClassifier(kernel=kern, n_jobs=-2)
+def make_clf():
+    nys = Nystroem(kernel='rbf', n_components=100)
+    # logreg w/ default C
+    lr = LogisticRegression(class_weight='balanced', C=1., penalty='l2', multi_class='multinomial', max_iter=1000)
+    # stitch together
+    clf = Pipeline([('nys',nys),('clf',lr)])
+
+    return clf
 
 # output
 outDir = 'synthetic_data'
@@ -67,16 +76,19 @@ if __name__ == '__main__':
                                    n_tissue_types = data_gen_params['number_of_tissues'],
                                    n_voxels = data_gen_params['number_of_voxels'],
                                    n_features = data_gen_params['number_of_features'],
-                                   noise = data_gen_params['set_noise'])
+                                   noise = [data_gen_params['set_noise']])
 
     plot_synthetic_data(metadata, data, transform='pca', outfile=outDir + '/pca-synthetic.png')
+    # save original synthetic data
+    metadata.to_csv(outDir + '/synthetic-metadata.csv', index=False)
+    data.to_csv(outDir + '/synthetic-data.csv', index=False)
     #########################################################################################
 
     # DATA PREP #############################################################################
     # split into train and test
     train_idx, test_idx = train_test_split(np.unique(metadata['subjects']), test_size=0.2, shuffle=True, random_state=42)
-    x_train, x_test = data[metadata['subjects'].isin(train_idx)], data[metadata['subjects'].isin(test_idx)]
-    y_train, y_test = metadata[metadata['subjects'].isin(train_idx)], metadata[metadata['subjects'].isin(test_idx)]
+    x_train, x_test = data.loc[metadata['subjects'].isin(train_idx)], data.loc[metadata['subjects'].isin(test_idx)]
+    y_train, y_test = metadata.loc[metadata['subjects'].isin(train_idx)], metadata.loc[metadata['subjects'].isin(test_idx)]
 
     # remove some tissue types from some subjects in training data
     x_train, y_train = decimate_data(x_train, y_train, data_gen_params['number_of_tissues'])
@@ -86,6 +98,13 @@ if __name__ == '__main__':
 
     # get cluster pairs, set up X data for BERMUDA
     dataset_list, _, cluster_pairs = prepare_data(x_train, y_train)
+
+    # save train/test data
+    y_train.to_csv(outDir + '/synthetic-metadata-training.csv', index=False)
+    y_test.to_csv(outDir + '/synthetic-metadata-testing.csv', index=False)
+
+    pd.DataFrame(x_train).to_csv(outDir + '/synthetic-data-training.csv', index=False)
+    pd.DataFrame(x_test).to_csv(outDir + '/synthetic-data-testing.csv', index=False)
     #########################################################################################
 
     # MODEL TRAINING ########################################################################
@@ -146,7 +165,8 @@ if __name__ == '__main__':
 
     # RUN CLASSIFICATION IN LATENT SPACE #########################################################
     # fit - use le to account for potential missing classes in test data
-    trained_model = train_classifier(rot_train_code, le.fit_transform(y_train.tissues), gpc)
+    clf = make_clf()
+    trained_model = train_classifier(rot_train_code, le.fit_transform(y_train.tissues), clf)
     # predict
     train_predicted_proba = trained_model.predict_proba(rot_train_code)
     test_predicted_proba = trained_model.predict_proba(rot_all_aligned)
@@ -162,8 +182,8 @@ if __name__ == '__main__':
     print('accuracy: {:.3f} log loss: {:.3f}'.format(test_accuracy, test_logloss))
 
     # train using full data (not embedded)
-    gpc2 = GaussianProcessClassifier(kernel=kern, n_jobs=-2)
-    full_trained_model = train_classifier(x_train, le.fit_transform(y_train.tissues), gpc2)
+    clf = make_clf()
+    full_trained_model = train_classifier(x_train, le.fit_transform(y_train.tissues), clf)
     # get accuracies
     full_test_logloss, full_test_accuracy, _ = calculate_model_accuracy(le.transform(y_test.tissues), full_trained_model.predict_proba(x_test))
 

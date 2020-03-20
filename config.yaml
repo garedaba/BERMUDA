@@ -16,7 +16,7 @@ data_gen_params:
   number_of_tissues: 10
   number_of_voxels: 50
   number_of_features: 10
-  set_noise: 0.33
+  set_noise: [0.33]
 
 pre_process_paras:
   scale: no   # Z-score

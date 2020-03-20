@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.utils import check_array
+from BERMUDA import training, testing
+import seaborn as sns
 
 def pre_process_datasets(train, test, paras):
     """perform Z-score standardisation or min-max scaling (to [0,1])
@@ -48,7 +50,8 @@ def prepare_data(x, y):
     tissue_subject_data=np.zeros((len(y)))
     for ind, (sub, tis) in enumerate(pd.unique(list(zip(y.subjects, y.tissues)))):
         tissue_subject_data[(y['subjects']==sub) & (y['tissues']==tis)] = ind
-    y.loc[:,'tissue_by_subject'] = tissue_subject_data.copy()
+
+    y.loc[:, 'tissue_by_subject'] = tissue_subject_data.copy()
 
     # create list of cluster pairs - identifying cells that are present in more than one subject
     new = []
@@ -68,9 +71,9 @@ def prepare_data(x, y):
 
     # cluster pairs for BERMUDA
     cluster_pairs = np.hstack((pairs, np.ones((len(pairs))).reshape(-1,1)))
-
     # break down data into lists, one per cell
     dataset_list = []
+
     for s in pd.unique(y['subjects']):
         dataset = {}
         dataset['data'] = x[y.subjects==s]
@@ -245,6 +248,42 @@ def invert_transform(lda, x):
 
     return x_back
 
+def train_and_test(training_dataset, training_meta, training_pairs, testing_dataset, testing_meta, params):
+    """train model and return reconstructions and embedded dataset
+    training_dataset: list of training data sets
+    training_meta: training metadata
+    training_pairs: matched tissue pairs across subjects
+    testing_dataset: list of testing data
+    testing_meta: testing metadata
+    params: neural network params
+
+    returns:
+    train_recon, test_recon: reconstructions of train and test datasets
+    train_code, all_aligned: embedded train and test data
+    """
+    # training
+    model, _, _, _ = training(training_dataset, training_pairs, params)
+
+    # training code
+    code_list, recon_list = testing(model, training_dataset, params)
+    train_code = (np.concatenate(code_list, axis=1).transpose())
+    train_recon = (np.concatenate(recon_list, axis=1).transpose())
+
+    # testing code
+    code_list_test, recon_list_test = testing(model, testing_dataset, params)
+    test_code = (np.concatenate(code_list_test, axis=1).transpose())
+    test_recon = (np.concatenate(recon_list_test, axis=1).transpose())
+
+    print('aligning latent spaces')
+    all_aligned =[]
+
+    for nsub, test_sub in enumerate(pd.unique(testing_meta.subjects)):
+        align_sub_code, _, _ = align_latent_space(testing_meta[testing_meta.subjects==test_sub], training_meta, test_code[testing_meta.subjects==test_sub], train_code, remove_labels=False)
+        all_aligned.append(align_sub_code)
+
+    all_aligned = np.vstack(all_aligned)
+
+    return train_recon, train_code, test_recon, all_aligned
 
 def plot_loss(loss_total_list, loss_reconstruct_list, loss_transfer_list, save_path):
     """ Plot loss versus epochs
@@ -270,3 +309,30 @@ def plot_loss(loss_total_list, loss_reconstruct_list, loss_transfer_list, save_p
     ax3.set_ylabel("loss")
     fig.savefig(save_path, dpi=300)
     plt.close(fig)
+
+
+
+def plot_parameter_accuracies(data, parameter='log_loss', palette='Blues', savepath='out.png'):
+
+    plot_data = data[[*data.columns[:2], parameter + '_training', parameter + '_testing']]
+    plot_data = plot_data.melt(id_vars=[*data.columns[:2]])
+
+    g = sns.catplot(x=data.columns[1], y='value',
+                data=plot_data, hue='variable',
+                col='noise_level', kind='bar',
+                palette=palette, facet_kws={'despine':False})
+
+    axes = g.axes.flatten()
+    for ax in axes:
+        ax.set_title(ax.get_title().replace('_', ' '), fontsize=20)
+        ax.set_xlabel(ax.get_xlabel().replace('_', ' '), fontsize=20)
+        ax.tick_params(axis='both', which='major', labelsize=20)
+    axes[0].set_ylabel(parameter, fontsize=20)
+
+    g._legend.set_title('')
+    plt.setp(g._legend.get_texts(), fontsize=18)
+    # replace labels
+    new_labels = ['training', 'testing']
+    for t, l in zip(g._legend.texts, new_labels): t.set_text(l)
+
+    g.savefig(savepath, dpi=300)

@@ -82,10 +82,9 @@ def generate_data(n_subjects=10, n_tissue_types=15, n_voxels=50, n_features=10, 
 
     # calculate covariance matrix and project to SPD
     label_data = zscore(meta_ohe, axis=0)
-    label_data_noisy = label_data + np.random.normal(loc=0, scale=noise, size=np.shape(label_data))
-    #covMat = np.dot(label_data_noisy, label_data_noisy.T)
-    covMat = rbf_kernel(label_data_noisy) + linear_kernel(label_data_noisy)
-    covMat = nearestPD(covMat)
+
+    # for multiple noise settings
+    data = []
 
     # use R function to create correlated feature data
     rstring = '''suppressMessages(library(simstudy))
@@ -102,14 +101,24 @@ def generate_data(n_subjects=10, n_tissue_types=15, n_voxels=50, n_features=10, 
     corr_Data = ro.r(rstring)
 
     # remove voxel ID, translate to python
-    data = ri2py(corr_Data)
-    data = data.iloc[:,1:]
+    cdata = ri2py(corr_Data)
+    cdata = cdata.iloc[:,1:]
 
-    # impart covariance structure dictated by meta data
-    data = (data.T.dot(np.linalg.cholesky(covMat).T)).T
+    for n,noi in enumerate(noise):
+
+        label_data_noisy = label_data + np.random.normal(loc=0, scale=noi, size=np.shape(label_data))
+        #covMat = np.dot(label_data_noisy, label_data_noisy.T)
+        covMat = rbf_kernel(label_data_noisy) + linear_kernel(label_data_noisy)
+        covMat = nearestPD(covMat)
+
+        # impart covariance structure dictated by meta data
+        data.append((cdata.T.dot(np.linalg.cholesky(covMat).T)).T)
 
     meta = pd.DataFrame(meta)
     meta.columns=['subjects', 'tissues']
+
+    if len(data)==1:
+        data = data[0]
 
     return meta, data
 

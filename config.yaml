@@ -10,6 +10,7 @@ model_params:
   l2_decay: 0.00005
   gamma: .5  # regularization between reconstruction and transfer learning - changes with epoch
   log_interval: 1
+  layers: 1
 
 data_gen_params:
   number_of_subjects: 10

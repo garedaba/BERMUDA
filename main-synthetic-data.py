@@ -16,12 +16,13 @@ from sklearn.kernel_approximation import Nystroem
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
+from sklearn.base import clone
 
 from modules.data_generation import generate_data, plot_synthetic_data
 from modules.helpers import *
-from models.classification import *
 
-from BERMUDA import training, testing
+from models.classification import *
+from models.BERMUDA import training, testing
 
 # SETUP ########################################################################
 # load parameters
@@ -51,14 +52,6 @@ pre_process_paras = cfg['pre_process_paras']
 # kernel approximation (allows nonlinear, probabilistic multiclass but a lot quicker)
 # samples n_comp samples to contruct RBF kernel (default gamma)
 le = LabelEncoder()
-def make_clf():
-    nys = Nystroem(kernel='rbf', n_components=100)
-    # logreg w/ default C
-    lr = LogisticRegression(class_weight='balanced', C=1., penalty='l2', multi_class='multinomial', max_iter=1000)
-    # stitch together
-    clf = Pipeline([('nys',nys),('clf',lr)])
-
-    return clf
 
 # output
 outDir = 'synthetic_data'
@@ -97,6 +90,8 @@ if __name__ == '__main__':
     x_train, x_test = pre_process_datasets(x_train, x_test, pre_process_paras)
 
     # get cluster pairs, set up X data for BERMUDA
+    print('')
+    print('calculating pairs')
     dataset_list, _, cluster_pairs = prepare_data(x_train, y_train)
 
     # save train/test data
@@ -168,11 +163,16 @@ if __name__ == '__main__':
     clf = make_clf()
     trained_model = train_classifier(rot_train_code, le.fit_transform(y_train.tissues), clf)
     # predict
+    train_predicted = trained_model.predict(rot_train_code)
     train_predicted_proba = trained_model.predict_proba(rot_train_code)
+    test_predicted = trained_model.predict(rot_all_aligned)
     test_predicted_proba = trained_model.predict_proba(rot_all_aligned)
+
     # get accuracies
-    train_logloss, train_accuracy, train_confusion = calculate_model_accuracy(le.transform(y_train.tissues), train_predicted_proba)
-    test_logloss, test_accuracy, test_confusion = calculate_model_accuracy(le.transform(y_test.tissues), test_predicted_proba)
+    train_accuracy, train_logloss, train_confusion = calculate_model_accuracy(le.transform(y_train.tissues), le.transform(y_train.tissues),
+                                                                 train_predicted, train_predicted_proba)
+    test_accuracy, test_logloss, test_confusion = calculate_model_accuracy(le.transform(y_train.tissues), le.transform(y_test.tissues),
+                                                                      test_predicted, test_predicted_proba)
 
     print('')
     print('training data:')
@@ -185,11 +185,12 @@ if __name__ == '__main__':
     clf = make_clf()
     full_trained_model = train_classifier(x_train, le.fit_transform(y_train.tissues), clf)
     # get accuracies
-    full_test_logloss, full_test_accuracy, _ = calculate_model_accuracy(le.transform(y_test.tissues), full_trained_model.predict_proba(x_test))
+    full_accuracy, full_logloss, _ = calculate_model_accuracy(le.transform(y_train.tissues), le.transform(y_test.tissues),
+                                                                 full_trained_model.predict(x_test), full_trained_model.predict_proba(x_test))
 
     print('')
     print('test data - no embedding')
-    print('accuracy: {:.3f} log loss: {:.3f}'.format(full_test_accuracy, full_test_logloss))
+    print('accuracy: {:.3f} log loss: {:.3f}'.format(full_accuracy, full_logloss))
 
     print('')
     ###############################################################################################

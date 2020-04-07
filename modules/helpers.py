@@ -4,10 +4,11 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.utils import check_array
-from BERMUDA import training, testing
+from tqdm import tqdm
+from models.BERMUDA import training, testing
 import seaborn as sns
 
 def pre_process_datasets(train, test, paras):
@@ -23,7 +24,7 @@ def pre_process_datasets(train, test, paras):
     """
 
     if paras['scale']:
-        ss = StandardScaler()
+        ss = RobustScaler(with_centering=False)
         train, test = ss.fit_transform(train), ss.transform(test)
     if paras['standardise']:
         mm = MinMaxScaler()
@@ -32,13 +33,15 @@ def pre_process_datasets(train, test, paras):
     return train, test
 
 
-def prepare_data(x, y):
+def prepare_data(x, y, train=True, weights=True):
     """set up data ready for BERMUDA.
     identify matched tisse types across subjects and output cluster pairs and subject-specific numbers
     create list of datasets, one per 'cluster'
 
     x: data array for training
     y: metadata, pandas DataFrame
+    train: calculate cluster pairings if true
+    weights: weights cluster pairs by frequency of cluster type (upweight pairs that don't appear often)
 
     returns:
     dataset_list: list of datasets, one per tissue type per subject
@@ -51,38 +54,48 @@ def prepare_data(x, y):
     for ind, (sub, tis) in enumerate(pd.unique(list(zip(y.subjects, y.tissues)))):
         tissue_subject_data[(y['subjects']==sub) & (y['tissues']==tis)] = ind
 
-    y.loc[:, 'tissue_by_subject'] = tissue_subject_data.copy()
+    y = y.assign(tissue_by_subject = tissue_subject_data.copy())
 
     # create list of cluster pairs - identifying cells that are present in more than one subject
-    new = []
-    for ind1, t in enumerate(y.tissues):
-        for ind2, u in enumerate(y.tissues):
-            if t==u: #i.e.: if the tissues are the same
-                # collate subject specific tissue IDs instead
-                new_t = y.tissue_by_subject.iloc[ind1]
-                new_u = y.tissue_by_subject.iloc[ind2]
-                # as long as they are not from the same subject
-                if new_t != new_u:
-                    # append sorted tuple (to make sure we don't double up: (1,2)==(2,1))
-                    new.append(tuple(sorted((new_t, new_u))))
-    # only unique pairs
-    pairs = pd.unique(new)
-    pairs = np.vstack(pairs)
+    if train:
+        new = []
+        old = []
+        for ind1, (t, new_t) in enumerate(tqdm(zip(y.tissues, y.tissue_by_subject), total=len(y.tissues))):
+            for ind2, (u, new_u) in enumerate(zip(y.tissues, y.tissue_by_subject)):
+                if t==u: #i.e.: if the tissues are the same
+                    if new_t != new_u:
+                        # append sorted tuple (to make sure we don't double up: (1,2)==(2,1))
+                        new.append(tuple(sorted((new_t, new_u))) + tuple([t]))
 
-    # cluster pairs for BERMUDA
-    cluster_pairs = np.hstack((pairs, np.ones((len(pairs))).reshape(-1,1)))
+        # only unique pairs
+        pairs = pd.unique(new)
+        pairs = np.vstack(pairs)
+
+        if weights:
+            w = pairs[:,-1].astype(float)
+            w_i, f_i = np.unique(w, return_counts=True)
+            for n,i in enumerate(w):
+                pairs[n,-1] = 1. / (f_i[w_i==i])
+        else:
+            pairs[:,-1] = np.ones(len(pairs))
+
     # break down data into lists, one per cell
     dataset_list = []
 
     for s in pd.unique(y['subjects']):
         dataset = {}
-        dataset['data'] = x[y.subjects==s]
-        dataset['tissue_labels'] = y.loc[y.subjects==s, 'tissue_by_subject'].values.astype(int)
-        dataset['sample_labels'] = y.loc[y.subjects==s, 'subjects'].values.astype(int)
+        x_data = x[y.subjects==s].copy()
+        dataset['data'] = x_data
+        x_labels = y.loc[y.subjects==s, 'tissue_by_subject'].values.astype(int)
+        dataset['tissue_labels'] = x_labels.copy()
+        x_samples =  y.loc[y.subjects==s, 'subjects'].values.astype(int)
+        dataset['sample_labels'] = x_samples.copy()
 
         dataset_list.append(dataset)
-
-    return dataset_list, y, cluster_pairs
+    if train==True:
+        return dataset_list, y, pairs
+    else:
+        return dataset_list
 
 
 def decimate_data(data, metadata, n_tissues):
@@ -177,11 +190,13 @@ def align_latent_space(y_test, y_train, test_code, train_code, remove_labels=Tru
     else:
         test_labels = y_test.tissues.copy()
 
-    for tiss in pd.unique(y_test.tissues):
-        # get centroids for test data
-        test_coord.append(get_centroids(test_code[y_test.tissues==tiss]))
-        # corresponding centroids in training data
-        train_coord.append(get_centroids(train_code[y_train.tissues==tiss]))
+    for tiss in pd.unique(y_test.tissues): #just gm,wm,csf?
+        # only if tissue type exists in both groups
+        if len(train_code[y_train.tissues==tiss])>0:
+            # get centroids for test data
+            test_coord.append(get_centroids(test_code[y_test.tissues==tiss]))
+            # corresponding centroids in training data
+            train_coord.append(get_centroids(train_code[y_train.tissues==tiss]))
 
     test_coord = np.vstack(test_coord)
     train_coord = np.vstack(train_coord)
@@ -278,12 +293,30 @@ def train_and_test(training_dataset, training_meta, training_pairs, testing_data
     all_aligned =[]
 
     for nsub, test_sub in enumerate(pd.unique(testing_meta.subjects)):
-        align_sub_code, _, _ = align_latent_space(testing_meta[testing_meta.subjects==test_sub], training_meta, test_code[testing_meta.subjects==test_sub], train_code, remove_labels=False)
+        align_sub_code, rot, trans = align_latent_space(testing_meta[testing_meta.subjects==test_sub], training_meta, test_code[testing_meta.subjects==test_sub], train_code, remove_labels=False)
         all_aligned.append(align_sub_code)
 
     all_aligned = np.vstack(all_aligned)
 
-    return train_recon, train_code, test_recon, all_aligned
+    return train_recon, train_code, test_recon, all_aligned, model, [rot, trans]
+
+
+def add_lesion_column(dataframe, encoder):
+    """
+    add column to dataframe, with one value for all pathological tissues
+    dataframe: metadata to add column to
+    encoder: tissue encoder
+    returns:
+    dataframe w/ lesion column
+    """
+
+    idx = [i for i, val in enumerate(encoder.inverse_transform(dataframe.tissues)) if val not in ['cortical','wm','csf']]
+    new_tissues = dataframe.tissues.copy()
+    new_tissues.iloc[idx] = 999
+    new_dataframe = dataframe.assign(lesion=new_tissues)
+
+    return new_dataframe
+
 
 def plot_loss(loss_total_list, loss_reconstruct_list, loss_transfer_list, save_path):
     """ Plot loss versus epochs

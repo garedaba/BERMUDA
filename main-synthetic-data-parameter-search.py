@@ -17,9 +17,11 @@ from sklearn.kernel_approximation import Nystroem
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
+from sklearn.base import clone
 
 from modules.data_generation import generate_data
 from modules.helpers import *
+
 from models.classification import *
 
 # SETUP ########################################################################
@@ -48,14 +50,6 @@ data_gen_params = cfg['data_gen_params']
 # kernel approximation (allows nonlinear, probabilistic multiclass but a lot quicker)
 # samples n_comp samples to contruct RBF kernel (default gamma)
 le = LabelEncoder()
-def make_clf():
-    nys = Nystroem(kernel='rbf', n_components=100)
-    # logreg w/ default C
-    lr = LogisticRegression(class_weight='balanced', C=1., penalty='l2', multi_class='multinomial', max_iter=1000)
-    # stitch together
-    clf = Pipeline([('nys',nys),('clf',lr)])
-
-    return clf
 clf = make_clf()
 
 # output
@@ -127,7 +121,7 @@ if __name__ == '__main__':
                 nn_params[parameter_set] = param
 
                 # train and test
-                train_recon, train_code, test_recon, test_code = train_and_test(dataset_list, y_train, cluster_pairs,
+                train_recon, train_code, test_recon, test_code, _, _ = train_and_test(dataset_list, y_train, cluster_pairs,
                                                                                   test_data_set, y_test,
                                                                                   nn_params)
                 # recon error
@@ -138,15 +132,18 @@ if __name__ == '__main__':
                 trained_model = train_classifier(train_code, le.fit_transform(y_train.tissues), clf)
 
                 # predict
+                train_predicted = trained_model.predict(train_code)
                 train_predicted_proba = trained_model.predict_proba(train_code)
+                test_predicted = trained_model.predict(test_code)
                 test_predicted_proba = trained_model.predict_proba(test_code)
 
                 # get accuracies
-                ll_train, acc_train, _ = calculate_model_accuracy(le.transform(y_train.tissues), train_predicted_proba)
+                ll_train, acc_train, _ = calculate_model_accuracy(le.transform(y_train.tissues), le.transform(y_train.tissues),
+                                                                  train_predicted, train_predicted_proba)
+                ll_test, acc_test, _ = calculate_model_accuracy(le.transform(y_train.tissues), le.transform(y_test.tissues),
+                                                                test_predicted, test_predicted_proba)
                 log_loss_training.append(ll_train)
                 accuracy_training.append(acc_train)
-
-                ll_test, acc_test, _  = calculate_model_accuracy(le.transform(y_test.tissues), test_predicted_proba)
                 log_loss_testing.append(ll_test)
                 accuracy_testing.append(acc_test)
 

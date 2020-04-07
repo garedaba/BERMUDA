@@ -3,13 +3,16 @@ import torch.utils.data
 from torch.autograd import Variable
 import torch.nn.functional as F
 
+from imblearn.over_sampling import RandomOverSampler
+# imblearn_seed = 0
+
 import math
 import time
 
 import numpy as np
 
 import models.autoencoder as models
-from mmd import mix_rbf_mmd2
+from models.mmd import mix_rbf_mmd2
 
 # range of sigma for MMD loss calculation
 base = 1.0
@@ -37,6 +40,7 @@ def training(dataset_list, cluster_pairs, nn_paras):
     num_inputs = nn_paras['num_inputs']
     code_dim = nn_paras['code_dim']
     cuda = nn_paras['cuda']
+    layers = nn_paras['layers']
 
     # create data loaders - one per tissue type
     cluster_loader_dict = {}
@@ -44,6 +48,8 @@ def training(dataset_list, cluster_pairs, nn_paras):
         data = dataset_list[i]['data']
         cluster_labels = dataset_list[i]['tissue_labels']
         unique_labels = np.unique(cluster_labels)
+        # oversample small clusters
+        data, cluster_labels = RandomOverSampler().fit_sample(data, cluster_labels)
 
         # construct DataLoader list
         for j in range(len(unique_labels)):
@@ -60,13 +66,16 @@ def training(dataset_list, cluster_pairs, nn_paras):
                                                       shuffle=True, drop_last=False)
 
             cluster_loader_dict[unique_labels[j]] = data_loader
-
+            # each dict element (one per tissue type) contains data loader with batches of all examples of that tissue type across subjects
 
     # create model
-    model = models.autoencoder_2(num_inputs=num_inputs, code_dim=code_dim)
+    if layers==1:
+        model = models.autoencoder_2(num_inputs=num_inputs, code_dim=code_dim)
+    else:
+        model = models.autoencoder_3(num_inputs=num_inputs, code_dim=code_dim)
+
     if cuda:
         model.cuda()
-
 
     # model training
     loss_total_list = []  # list of total loss
@@ -128,6 +137,7 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
     model.train()
 
     iter_data_dict = {}
+    # for each tissue type
     for cls in cluster_loader_dict:
         iter_data = iter(cluster_loader_dict[cls])
         iter_data_dict[cls] = iter_data
@@ -135,31 +145,34 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
     num_iter = 0
     for cls in cluster_loader_dict:
         num_iter = max(num_iter, len(cluster_loader_dict[cls]))
+        # largest number of batches within a tissue type (subjects combined)
 
     total_loss = 0
     total_reco_loss = 0
     total_tran_loss = 0
     num_batches = 0
 
+    # for each batch
     for it in range(0, num_iter):
         data_dict = {}
         label_dict = {}
         code_dict = {}
         reconstruct_dict = {}
+        # take one batch per cluster
         for cls in iter_data_dict:
-            data, labels = iter_data_dict[cls].next()
+            data, labels = iter_data_dict[cls].next() # next batch
             data_dict[cls] = data
             label_dict[cls] = labels
             if it % len(cluster_loader_dict[cls]) == 0:
-                iter_data_dict[cls] = iter(cluster_loader_dict[cls])
-            data_dict[cls] = Variable(data_dict[cls])
+                iter_data_dict[cls] = iter(cluster_loader_dict[cls]) # if ran out, start again
+            data_dict[cls] = Variable(data_dict[cls]) # one batch per element
             label_dict[cls] = Variable(label_dict[cls])
 
-        for cls in data_dict:
-            code, reconstruct = model(data_dict[cls])
+        for cls in data_dict: # for each batch
+            code, reconstruct = model(data_dict[cls]) # train
             code_dict[cls] = code
             reconstruct_dict[cls] = reconstruct
-
+        # model trained with all batches, one per cluster
         optimizer.zero_grad()
 
         # transfer loss for cluster pairs in cluster_pairs matrix

@@ -22,6 +22,7 @@ sigma_list = [sigma / base for sigma in sigma_list]
 def safe_div(n, d):
     return n / d if d else n
 
+
 def training(dataset_list, cluster_pairs, nn_paras):
     """ Training an autoencoder to remove batch effects
     dataset_list: list of datasets for batch correction
@@ -81,19 +82,21 @@ def training(dataset_list, cluster_pairs, nn_paras):
     loss_total_list = []  # list of total loss
     loss_reconstruct_list = []
     loss_transfer_list = []
+    loss_mmd_list = []
 
     print('{:} MODEL TRAINING'.format(time.asctime(time.localtime())))
 
     for epoch in range(1, num_epochs + 1):
-        avg_loss, avg_reco_loss, avg_tran_loss = training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras)
+        avg_loss, avg_reco_loss, avg_tran_loss, avg_mmd_loss = training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras)
         # terminate early if loss is nan
         if math.isnan(avg_reco_loss) or math.isnan(avg_tran_loss):
             return [], model, [], [], []
         loss_total_list.append(avg_loss)
         loss_reconstruct_list.append(avg_reco_loss)
         loss_transfer_list.append(avg_tran_loss)
+        loss_mmd_list.append(avg_mmd_loss)
 
-    return model, loss_total_list, loss_reconstruct_list, loss_transfer_list
+    return model, loss_total_list, loss_reconstruct_list, loss_transfer_list, loss_mmd_list
 
 
 def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
@@ -123,8 +126,8 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
     learning_rate = base_lr / math.pow(2, math.floor(epoch / lr_step))
 
     # regularization parameter between two losses, increasing over time
-    #gamma_rate = 2 / (1 + math.exp(-10 * (epoch) / num_epochs)) - 1
-    gamma_rate = 2 / (1 + math.exp(-5 * (epoch) / num_epochs)) - 1
+    gamma_rate = 2 / (1 + math.exp(-10 * (epoch) / num_epochs)) - 1
+    #gamma_rate = 2 / (1 + math.exp(-5 * (epoch) / num_epochs)) - 1
     gamma = gamma_rate * gamma
 
     if epoch % log_interval == 0:
@@ -149,10 +152,18 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
 
     total_loss = 0
     total_reco_loss = 0
+    total_info_loss = 0
     total_tran_loss = 0
+    total_mmd_loss = 0
     num_batches = 0
 
     # for each batch
+    # equiv. norm. dist.
+    true_samples = torch.randn((1000, nn_paras['code_dim']))
+    true_samples = torch.FloatTensor(true_samples)
+    if cuda:
+        true_samples = true_samples.cuda()
+
     for it in range(0, num_iter):
         data_dict = {}
         label_dict = {}
@@ -165,7 +176,7 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
             label_dict[cls] = labels
             if it % len(cluster_loader_dict[cls]) == 0:
                 iter_data_dict[cls] = iter(cluster_loader_dict[cls]) # if ran out, start again
-            data_dict[cls] = Variable(data_dict[cls]) # one batch per element
+            data_dict[cls] = Variable(data_dict[cls]) # one batch per entry
             label_dict[cls] = Variable(label_dict[cls])
 
         for cls in data_dict: # for each batch
@@ -179,6 +190,7 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
         loss_transfer = torch.FloatTensor([0])
         if cuda:
             loss_transfer = loss_transfer.cuda()
+
         for i in range(cluster_pairs.shape[0]):
             cls_1 = int(cluster_pairs[i,0])
             cls_2 = int(cluster_pairs[i,1])
@@ -187,6 +199,15 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
             mmd2_D = mix_rbf_mmd2(code_dict[cls_1], code_dict[cls_2], sigma_list)
             loss_transfer += mmd2_D * cluster_pairs[i,2]
 
+        # MMD loss to normal dist.
+        mmd_loss = torch.FloatTensor([0])
+        if cuda:
+            mmd_loss = mmd_loss.cuda()
+
+        # all encoded values
+        all_code = torch.cat(list(code_dict.values()))
+        mmd_loss += mix_rbf_mmd2(true_samples, all_code, sigma_list)
+
         # reconstruction loss for all clusters
         loss_reconstruct = torch.FloatTensor([0])
         if cuda:
@@ -194,15 +215,8 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
         for cls in data_dict:
             loss_reconstruct += F.mse_loss(reconstruct_dict[cls], data_dict[cls])
 
-        # ortho loss
-        #ortho_loss = torch.FloatTensor([0])
-        #if cuda:
-        #    ortho_loss = ortho_loss.cuda()
-        #for cls in code_dict:
-        #    ortho_loss += F.mse_loss(torch.matmul(torch.transpose(code_dict[cls],1,0), code_dict[cls]), torch.eye(code_dict[cls].shape[1]).cuda())
-
-        #loss = (loss_reconstruct + (0.1*ortho_loss)) + gamma * loss_transfer
-        loss = (loss_reconstruct) + gamma * loss_transfer
+        info_loss = loss_reconstruct + mmd_loss
+        loss = info_loss + (gamma * loss_transfer)
 
         loss.backward()
         optimizer.step()
@@ -211,16 +225,20 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
         num_batches += 1
         total_loss += loss.data.item()
         total_reco_loss += loss_reconstruct.data.item()
+        total_info_loss += info_loss.data.item()
         total_tran_loss += loss_transfer.data.item()
+        total_mmd_loss += mmd_loss.data.item()
 
     avg_total_loss = safe_div(total_loss, num_batches)
     avg_reco_loss = safe_div(total_reco_loss, num_batches)
+    avg_info_loss = safe_div(total_info_loss, num_batches)
     avg_tran_loss = safe_div(total_tran_loss, num_batches)
+    avg_mmd_loss = safe_div(total_mmd_loss, num_batches)
 
     if epoch % log_interval == 0:
         print('average_loss {:.3f}\t average_reconstruct_loss {:.3f}\t average_transfer_loss {:.3f}'.format(
             avg_total_loss, avg_reco_loss, avg_tran_loss))
-    return avg_total_loss, avg_reco_loss, avg_tran_loss
+    return avg_total_loss, avg_reco_loss, avg_tran_loss, avg_mmd_loss
 
 
 def testing(model, dataset_list, nn_paras):

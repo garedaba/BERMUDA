@@ -2,15 +2,15 @@ cuda_setup:
   device_id: 0
 
 model_params:
-  code_dim: 3 # latent space
+  code_dim: 2 # latent space
   batch_size: 32 # batch size for each cluster
-  num_epochs: 1000
+  num_epochs: 2500
   base_lr: 0.001
-  lr_step: 100  # step decay of learning rates
-  l2_decay: 0.00005
+  lr_step: 250  # step decay of learning rates
+  l2_decay: 0.0001
   gamma: .5  # regularization between reconstruction and transfer learning - changes with epoch
   log_interval: 1
-  layers: 1
+  layers: 20
 
 data_gen_params:
   number_of_subjects: 10
@@ -20,5 +20,5 @@ data_gen_params:
   set_noise: [0.33]
 
 pre_process_paras:
-  scale: no   # Z-score
+  scale: yes   # Z-score
   standardise: yes   # [0,1]

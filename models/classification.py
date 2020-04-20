@@ -7,13 +7,13 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import log_loss, balanced_accuracy_score, confusion_matrix
 from sklearn.kernel_approximation import Nystroem
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegressionCV
 from sklearn.base import clone
 
 def make_clf():
     nys = Nystroem(kernel='rbf', n_components=100)
     # logreg w/ default C
-    lr = LogisticRegression(class_weight='balanced', C=1., penalty='l2', multi_class='multinomial', max_iter=1000)
+    lr = LogisticRegressionCV(Cs=np.logspace(-3,1, num=5), cv=5, class_weight='balanced', penalty='l2', multi_class='multinomial', max_iter=10000, n_jobs=4)
     # stitch together
     clf = Pipeline([('nys',nys),('clf',lr)])
 

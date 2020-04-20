@@ -95,7 +95,7 @@ def prepare_data(x, y, train=True, weights=True):
     if train==True:
         return dataset_list, y, pairs
     else:
-        return dataset_list
+        return dataset_list, y
 
 
 def decimate_data(data, metadata, n_tissues):
@@ -291,14 +291,15 @@ def train_and_test(training_dataset, training_meta, training_pairs, testing_data
 
     print('aligning latent spaces')
     all_aligned =[]
-
+    alignment_params=[]
     for nsub, test_sub in enumerate(pd.unique(testing_meta.subjects)):
         align_sub_code, rot, trans = align_latent_space(testing_meta[testing_meta.subjects==test_sub], training_meta, test_code[testing_meta.subjects==test_sub], train_code, remove_labels=False)
         all_aligned.append(align_sub_code)
+        alignment_params.append([rot, trans])
 
     all_aligned = np.vstack(all_aligned)
 
-    return train_recon, train_code, test_recon, all_aligned, model, [rot, trans]
+    return train_recon, train_code, test_recon, all_aligned, model, alignment_params
 
 
 def add_lesion_column(dataframe, encoder):

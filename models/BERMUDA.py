@@ -70,8 +70,10 @@ def training(dataset_list, cluster_pairs, nn_paras):
             # each dict element (one per tissue type) contains data loader with batches of all examples of that tissue type across subjects
 
     # create model
-    if layers==1:
-        model = models.autoencoder_2(num_inputs=num_inputs, code_dim=code_dim)
+    if layers==100:
+        model = models.autoencoder_100(num_inputs=num_inputs, code_dim=code_dim)
+    elif layers==20:
+        model = models.autoencoder_20(num_inputs=num_inputs, code_dim=code_dim)
     else:
         model = models.autoencoder_3(num_inputs=num_inputs, code_dim=code_dim)
 
@@ -127,7 +129,6 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
 
     # regularization parameter between two losses, increasing over time
     gamma_rate = 2 / (1 + math.exp(-10 * (epoch) / num_epochs)) - 1
-    #gamma_rate = 2 / (1 + math.exp(-5 * (epoch) / num_epochs)) - 1
     gamma = gamma_rate * gamma
 
     if epoch % log_interval == 0:
@@ -217,6 +218,7 @@ def training_epoch(epoch, model, cluster_loader_dict, cluster_pairs, nn_paras):
 
         info_loss = loss_reconstruct + mmd_loss
         loss = info_loss + (gamma * loss_transfer)
+        #loss = info_loss + loss_transfer
 
         loss.backward()
         optimizer.step()

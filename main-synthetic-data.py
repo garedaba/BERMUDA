@@ -109,7 +109,7 @@ if __name__ == '__main__':
     nn_params['num_inputs'] = np.shape(dataset_list[0]['data'])[1]
 
     # training
-    model, loss_total_list, loss_reconstruct_list, loss_transfer_list = training(dataset_list, cluster_pairs, nn_params)
+    model, loss_total_list, loss_reconstruct_list, loss_transfer_list, loss_mmd_list = training(dataset_list, cluster_pairs, nn_params)
 
     # plot training loss
     plot_loss(loss_total_list, loss_reconstruct_list, loss_transfer_list, outDir + '/model-loss.png')
@@ -135,6 +135,7 @@ if __name__ == '__main__':
     print('test_error {:.3f}'.format(test_mse))
     print('')
 
+    """
     # align to latent space
     print('aligning latent spaces')
     all_aligned =[]
@@ -150,23 +151,23 @@ if __name__ == '__main__':
     rot_test_code = transformer.transform(test_code)
     rot_all_aligned = transformer.transform(all_aligned)
     ##########################################################################################
-
+    """
     # SAVE OUTPUT ###############################################################################
-    train_out = pd.concat((y_train, pd.DataFrame(rot_train_code, index=y_train.index)), axis=1)
-    train_out.to_csv(outDir + '/rotated-embedded-train-data.csv')
-    test_out = pd.concat((y_test, pd.DataFrame(rot_all_aligned, index=y_test.index)), axis=1)
-    test_out.to_csv(outDir + '/rotated-embedded-test-data.csv')
+    train_out = pd.concat((y_train, pd.DataFrame(train_code, index=y_train.index)), axis=1)
+    train_out.to_csv(outDir + '/embedded-train-data.csv')
+    test_out = pd.concat((y_test, pd.DataFrame(test_code, index=y_test.index)), axis=1)
+    test_out.to_csv(outDir + '/embedded-test-data.csv')
     #########################################################################################
 
     # RUN CLASSIFICATION IN LATENT SPACE #########################################################
     # fit - use le to account for potential missing classes in test data
     clf = make_clf()
-    trained_model = train_classifier(rot_train_code, le.fit_transform(y_train.tissues), clf)
+    trained_model = train_classifier(train_code, le.fit_transform(y_train.tissues), clf)
     # predict
-    train_predicted = trained_model.predict(rot_train_code)
-    train_predicted_proba = trained_model.predict_proba(rot_train_code)
-    test_predicted = trained_model.predict(rot_all_aligned)
-    test_predicted_proba = trained_model.predict_proba(rot_all_aligned)
+    train_predicted = trained_model.predict(train_code)
+    train_predicted_proba = trained_model.predict_proba(train_code)
+    test_predicted = trained_model.predict(test_code)
+    test_predicted_proba = trained_model.predict_proba(test_code)
 
     # get accuracies
     train_accuracy, train_logloss, train_confusion = calculate_model_accuracy(le.transform(y_train.tissues), le.transform(y_train.tissues),
@@ -210,19 +211,19 @@ if __name__ == '__main__':
     ##########################################################################################
 
     # PLOT ALL LATENT SPACES #################################################################
-    fig, (ax1, ax2) = plt.subplots(2,3, figsize=(12,6), sharey=True, sharex=True)
+    fig, (ax1, ax2) = plt.subplots(2,2, figsize=(8,6), sharey=True, sharex=True)
     ax1[0].scatter(train_code[:,0], train_code[:,1], c=y_train.subjects, alpha=0.5, edgecolor='grey', s=20, cmap='jet')
     ax2[0].scatter(train_code[:,0], train_code[:,1], c=y_train.tissues, alpha=0.5, edgecolor='grey', s=20, cmap='viridis')
 
     ax1[1].scatter(test_code[:,0], test_code[:,1], c=y_test.subjects,alpha=0.5, edgecolor='grey', s=20, cmap='jet')
     ax2[1].scatter(test_code[:,0], test_code[:,1], c=y_test.tissues, alpha=0.5, edgecolor='grey', s=20, cmap='viridis')
-
+    """
     ax1[2].scatter(all_aligned[:,0], all_aligned[:,1], c=y_test.subjects, alpha=0.5, edgecolor='grey', s=20, cmap='jet')
     ax2[2].scatter(all_aligned[:,0], all_aligned[:,1], c=y_test.tissues, alpha=0.5, edgecolor='grey', s=20, cmap='viridis')
+    """
 
     ax1[0].set_title('training data')
     ax1[1].set_title('test data')
-    ax1[2].set_title('aligned data')
 
     ax1[0].set_ylabel('by subject')
     ax2[0].set_title('by tissue')
@@ -232,8 +233,8 @@ if __name__ == '__main__':
 
     # PLOT CONFUSION MATRICES ################################################################
     fig, (ax1, ax2, ax3) = plt.subplots(1,3, figsize=(15,4), )
-    plot_confusion_matrix(trained_model, rot_train_code,  le.transform(y_train.tissues), values_format='1', cmap='Greens', ax=ax1)
-    plot_confusion_matrix(trained_model, rot_all_aligned,  le.transform(y_test.tissues), values_format='1', cmap='Greens', ax=ax2)
+    plot_confusion_matrix(trained_model, train_code,  le.transform(y_train.tissues), values_format='1', cmap='Greens', ax=ax1)
+    plot_confusion_matrix(trained_model, test_code,  le.transform(y_test.tissues), values_format='1', cmap='Greens', ax=ax2)
     plot_confusion_matrix(full_trained_model, x_test,  le.transform(y_test.tissues), values_format='1', cmap='Greens', ax=ax3)
     ax1.set_title('embedded training data')
     ax2.set_title('embedded testing data')
